@@ -33,6 +33,21 @@ ignore = [
 "tests/**/*.py" = ["N802", "N803"]  # noms de tests en snake_case autorisés avec majuscules
 "__init__.py" = ["F401"]            # imports réexportés tolérés
 
+[tool.ruff.lint.isort]
+# Modules du projet Jarvis — sinon ruff les classe en third-party et I001 crie.
+known-first-party = [
+  "config",
+  "core",
+  "ears",
+  "brain",
+  "hands",
+  "voice",
+  "integrations",
+  "safety",
+  "observability",
+  "tests",
+]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
