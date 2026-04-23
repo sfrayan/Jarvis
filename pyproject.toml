@@ -74,6 +74,7 @@ warn_required_dynamic_aliases = true
 minversion = "8.0"
 testpaths = ["tests"]
 asyncio_mode = "auto"            # Tests async détectés automatiquement
+asyncio_default_fixture_loop_scope = "function"  # Cadrage explicite (évite DeprecationWarning pytest-asyncio)
 addopts = [
   "--strict-markers",            # Markers non déclarés → erreur
   "--strict-config",

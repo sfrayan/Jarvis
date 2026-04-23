@@ -1,0 +1,137 @@
+# =============================================================================
+# Jarvis — services de support (tous les services applicatifs sauf jarvis-core).
+#
+# jarvis-core (Python) tourne en NATIF sous Windows, hors Docker, car il doit
+# accéder au bureau pour souris / clavier / capture d'écran. Il joint ces
+# conteneurs via `host.docker.internal` (pattern `ruleless-digital-twins`).
+#
+# Démarrage       : docker compose up -d
+# État            : docker compose ps
+# Logs            : docker compose logs -f <service>
+# Arrêt           : docker compose down           (conserve les volumes)
+# Reset complet   : docker compose down -v        (SUPPRIME les volumes !)
+# =============================================================================
+
+name: jarvis
+
+networks:
+  jarvis-net:
+    driver: bridge
+
+volumes:
+  ollama_models:      # Modèles Ollama (qwen3, qwen2.5vl, nomic-embed-text, etc.)
+  chroma_data:        # Base vectorielle persistante du RAG
+  piper_voices:       # Voix Piper (fr_FR-siwis-medium + téléchargements auto)
+  n8n_data:           # Workflows, credentials chiffrés, base SQLite n8n
+
+services:
+  # ---------------------------------------------------------------------------
+  # Ollama — LLM local (routeur, vision, embeddings)
+  # API : http://host.docker.internal:11434
+  # ---------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: jarvis-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - jarvis-net
+    environment:
+      OLLAMA_KEEP_ALIVE: "24h"       # Garde les modèles chauds en RAM 24h
+      OLLAMA_NUM_PARALLEL: "2"       # 2 requêtes simultanées (routeur + vision)
+      OLLAMA_HOST: "0.0.0.0:11434"   # Écoute sur toutes interfaces du conteneur
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+    # --- Activation GPU NVIDIA (décommenter si dispo) ------------------------
+    # Nécessite Docker Desktop 4.14+ avec WSL2 GPU support activé ET pilote
+    # NVIDIA à jour sur Windows. Sans GPU, laisse commenté : Ollama bascule
+    # automatiquement sur CPU (nettement plus lent pour qwen2.5vl).
+    #
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # ---------------------------------------------------------------------------
+  # ChromaDB — base vectorielle pour le RAG local
+  # API : http://host.docker.internal:8000
+  # Doc : https://docs.trychroma.com/
+  # ---------------------------------------------------------------------------
+  chromadb:
+    image: chromadb/chroma:0.5.23
+    container_name: jarvis-chromadb
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - jarvis-net
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /chroma/chroma
+      ANONYMIZED_TELEMETRY: "FALSE"
+      CHROMA_SERVER_HOST: "0.0.0.0"
+      CHROMA_SERVER_HTTP_PORT: "8000"
+
+  # ---------------------------------------------------------------------------
+  # Piper TTS — synthèse vocale FR via protocole Wyoming
+  # API Wyoming : tcp://host.docker.internal:10200
+  # Image linuxserver/piper : https://docs.linuxserver.io/images/docker-piper
+  # Voix FR : fr_FR-siwis-medium (téléchargement auto au premier run)
+  # ---------------------------------------------------------------------------
+  piper-tts:
+    image: lscr.io/linuxserver/piper:latest
+    container_name: jarvis-piper
+    restart: unless-stopped
+    ports:
+      - "10200:10200"
+    volumes:
+      - piper_voices:/config
+    networks:
+      - jarvis-net
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "Europe/Paris"
+      PIPER_VOICE: "fr_FR-siwis-medium"
+
+  # ---------------------------------------------------------------------------
+  # n8n — orchestrateur de workflows (démarré automatiquement, décision validée)
+  # UI : http://localhost:5678
+  # Première connexion : création d'un compte local (aucun cloud requis).
+  # ---------------------------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: jarvis-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - jarvis-net
+    environment:
+      N8N_HOST: "localhost"
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: "http"
+      GENERIC_TIMEZONE: "Europe/Paris"
+      TZ: "Europe/Paris"
+      N8N_LOG_LEVEL: "info"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
