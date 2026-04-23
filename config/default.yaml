@@ -1,0 +1,70 @@
+# =============================================================================
+# Jarvis — configuration par défaut (commitée)
+# Override local : créer `config/local.yaml` (gitignore) à partir de
+# `config/local.yaml.example`. Le loader fusionnera local.yaml sur default.yaml.
+# =============================================================================
+
+# --- Sécurité (PRIORITÉ ABSOLUE, voir CLAUDE.md) ------------------------------
+safety:
+  # Mode par défaut au premier lancement : dry_run (aucune action réellement
+  # exécutée, les actions calculées sont loggées et affichées en overlay).
+  # Passage en `autonomous` : éditer local.yaml + poser
+  # JARVIS_I_UNDERSTAND_THE_RISKS=true dans .env.
+  mode: dry_run                     # observe | dry_run | assisted | autonomous
+
+  kill_switch:
+    hotkey: "f12"                   # Touche unique déclenchant l'arrêt immédiat
+    escape_long_ms: 1000            # Maintien d'Échap > ce seuil = arrêt
+    corner_trigger: true            # Souris poussée en (0,0) = arrêt (pyautogui.FAILSAFE)
+
+  # Patterns déclenchant `requires_human: true` quelle que soit la confidence.
+  # Recherche case-insensitive dans les actions `type_text` et `key_combo`.
+  allowlist_destructive_patterns:
+    - "rm "
+    - "rm -"
+    - "format "
+    - "del "
+    - "drop table"
+    - "drop database"
+    - "shutdown"
+    - "reboot"
+
+# --- Audio (capture micro) ----------------------------------------------------
+audio:
+  sample_rate: 16000                # Hz, requis par Silero VAD et faster-whisper
+  vad_threshold: 0.5                # Probabilité minimale de parole (Silero)
+  silence_timeout_ms: 800           # Silence contigu = fin d'énoncé
+  device_index: null                # null = micro par défaut de Windows
+
+# --- STT (speech-to-text) -----------------------------------------------------
+stt:
+  backend: faster-whisper           # faster-whisper uniquement en Itération 1
+  model: medium                     # tiny | base | small | medium | large-v3
+  language: fr                      # Langue principale de l'utilisateur
+  device: auto                      # auto | cuda | cpu
+  beam_size: 5
+
+# --- Vision (GUI grounding) ---------------------------------------------------
+vision:
+  backend_local: qwen2.5vl:7b       # Modèle Ollama principal
+  backend_cloud: anthropic          # Utilisé uniquement si cloud.fallback=true
+  confidence_threshold: 0.6         # En dessous : requires_human: true forcé
+  max_iterations: 5                 # Nb max de boucles VISION→ACTING par requête
+  screenshot_max_long_edge: 1568    # Limite Anthropic Computer Use
+  screenshot_max_pixels: 1150000    # Limite Anthropic Computer Use
+
+# --- TTS (synthèse vocale) ----------------------------------------------------
+tts:
+  voice: fr_FR-siwis-medium         # Voix Piper (cf. piper voices)
+  speed: 1.0                        # Facteur de vitesse (1.0 = nominal)
+
+# --- Cloud (fallback optionnel) -----------------------------------------------
+cloud:
+  fallback: false                   # Override via .env JARVIS_CLOUD_FALLBACK
+  retry_after_local_failures: 2     # Nb d'échecs locaux avant escalade cloud
+
+# --- Observabilité ------------------------------------------------------------
+observability:
+  metrics_enabled: false            # Exporter Prometheus (Itération 5+)
+  metrics_port: 9090
+  log_format: console               # console (dev) | json (prod)

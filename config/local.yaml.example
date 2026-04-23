@@ -1,0 +1,22 @@
+# =============================================================================
+# Jarvis — override local (à copier en `config/local.yaml`, gitignore).
+# Seules les clés présentes ici surchargent `default.yaml`.
+# Laisser vide si aucune personnalisation nécessaire.
+# =============================================================================
+
+# Exemple : activer le mode assisted une fois que tu es familier du dry_run.
+# safety:
+#   mode: assisted
+
+# Exemple : forcer le CPU si pas de GPU.
+# stt:
+#   device: cpu
+
+# Exemple : utiliser le modèle Whisper large-v3 (meilleure qualité, plus lent).
+# stt:
+#   model: large-v3
+
+# Exemple : activer Prometheus pour le monitoring.
+# observability:
+#   metrics_enabled: true
+#   log_format: json
