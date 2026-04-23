@@ -1,0 +1,50 @@
+# =============================================================================
+# Jarvis — dépendances Python (Itération 1 : scaffolding)
+# Cible : Python 3.11+ sous Windows 11
+# Toutes les versions sont pinées pour reproductibilité.
+# =============================================================================
+
+# --- Runtime core ---------------------------------------------------------
+pydantic==2.10.4              # Validation des configs et contrats JSON LLM (v2 strict)
+pydantic-settings==2.7.1      # Chargement BaseSettings depuis .env / YAML
+structlog==24.4.0             # Logging structuré (console dev, JSON prod)
+tenacity==9.0.0               # Retries avec backoff exponentiel pour appels réseau
+httpx==0.28.1                 # Client HTTP async (Ollama, Piper, n8n, Anthropic)
+PyYAML==6.0.2                 # Parsing config/default.yaml et config/local.yaml
+
+# --- Ears (audio in) ------------------------------------------------------
+sounddevice==0.5.1            # Capture micro ; préféré à pyaudio sous Windows (pas de build PortAudio)
+numpy==1.26.4                 # Tampons audio + manipulations numériques
+soundfile==0.12.1             # Lecture/écriture WAV pour debug/fixtures
+silero-vad==5.1.2             # VAD RTF 0.004, sans wake word (détection voix continue)
+faster-whisper==1.1.1         # STT FR, 4× plus rapide que whisper vanilla, supporte CUDA
+
+# Note : torch n'est PAS listé ici. Installer séparément avec la variante CUDA appropriée :
+#   pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+# La variante CPU suffit si pas de GPU NVIDIA.
+
+# --- Brain (LLM clients) --------------------------------------------------
+ollama==0.4.7                 # Client Python pour Ollama (routeur qwen3 + vision qwen2.5vl)
+chromadb-client==0.5.23       # Client léger ChromaDB (pas de build natif côté host)
+
+# --- Hands (GUI Windows) --------------------------------------------------
+pyautogui==0.9.54             # Actions souris/clavier cross-platform
+pynput==1.7.7                 # Listener global clavier/souris (requis pour kill switch F12)
+mss==9.0.2                    # Capture d'écran ultra-rapide (~5 ms) multi-moniteurs
+Pillow==11.0.0                # Manipulation d'images (resize pour LLM vision, overlays dry_run)
+
+# --- Voice (TTS) ----------------------------------------------------------
+# Piper tourne en conteneur Wyoming (port 10200) — pas de lib Python côté host.
+# Client : httpx + asyncio (déjà listé).
+
+# --- Cloud fallback (optionnel, activé par JARVIS_CLOUD_FALLBACK=true) ---
+anthropic==0.42.0             # Claude Computer Use (fallback vision si UI locale échoue 2×)
+openai==1.59.7                # OpenRouter compatible (routage multi-modèle de secours)
+
+# --- Dev / qualité --------------------------------------------------------
+pytest==8.3.4                 # Framework de tests
+pytest-asyncio==0.25.0        # Support async/await dans pytest
+pytest-cov==6.0.0             # Rapport de couverture
+ruff==0.8.6                   # Lint + format (remplace black + isort + flake8)
+mypy==1.14.1                  # Vérification de types stricte
+types-PyYAML==6.0.12.20241230 # Stubs mypy pour PyYAML

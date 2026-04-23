@@ -1,0 +1,106 @@
+# =============================================================================
+# Jarvis — configuration tooling (ruff, mypy, pytest)
+# Pas de section [project] : Jarvis n'est pas un package installable.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Ruff — lint + format
+# -----------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv", "build", "dist", "models", "logs"]
+
+[tool.ruff.lint]
+# Sélection volontairement large : détecte erreurs, imports mal triés, code mort,
+# bugs subtils (B), simplifications (SIM) et règles spécifiques ruff (RUF).
+select = [
+  "E",    # pycodestyle errors
+  "F",    # pyflakes
+  "W",    # pycodestyle warnings
+  "I",    # isort
+  "N",    # pep8-naming
+  "UP",   # pyupgrade (force syntaxe Python moderne)
+  "B",    # flake8-bugbear
+  "SIM",  # flake8-simplify
+  "RUF",  # ruff-specific
+]
+ignore = [
+  "E501",  # line-length gérée par le formatter lui-même
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["N802", "N803"]  # noms de tests en snake_case autorisés avec majuscules
+"__init__.py" = ["F401"]            # imports réexportés tolérés
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# -----------------------------------------------------------------------------
+# Mypy — types stricts partout (règle CLAUDE.md)
+# -----------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# Libs GUI Windows sans stubs officiels : on tolère l'absence de types
+module = [
+  "pyautogui.*",
+  "pynput.*",
+  "mss.*",
+  "sounddevice.*",
+  "soundfile.*",
+  "silero_vad.*",
+  "faster_whisper.*",
+]
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# -----------------------------------------------------------------------------
+# Pytest — tests unitaires et intégration
+# -----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"            # Tests async détectés automatiquement
+addopts = [
+  "--strict-markers",            # Markers non déclarés → erreur
+  "--strict-config",
+  "-ra",                         # Résumé des tests ignorés/xfailed
+]
+markers = [
+  "unit: tests unitaires isolés (pas d'I/O externe, pas de conteneurs)",
+  "integration: tests d'intégration nécessitant Docker/Ollama/réseau",
+  "slow: tests lents (> 1s), exclus du run rapide",
+]
+filterwarnings = [
+  "error",
+  "ignore::DeprecationWarning:pydantic.*",
+]
+
+# -----------------------------------------------------------------------------
+# Coverage (pytest-cov)
+# -----------------------------------------------------------------------------
+[tool.coverage.run]
+branch = true
+source = ["core", "ears", "brain", "hands", "voice", "safety", "integrations", "observability", "config"]
+omit = ["*/__init__.py", "tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+]
+show_missing = true
