@@ -61,7 +61,9 @@ _BASE_TRANSITIONS: dict[State, frozenset[State]] = {
     State.IDLE: frozenset({State.LISTENING}),
     State.LISTENING: frozenset({State.TRANSCRIBING, State.IDLE}),
     State.TRANSCRIBING: frozenset({State.ROUTING, State.IDLE}),
-    State.ROUTING: frozenset({State.CHAT_ANSWER, State.SCREENSHOT}),
+    # ROUTING -> IDLE est temporaire (Itération 4) : le routeur classe
+    # l'intention, mais ni le chat vocal ni la vision GUI ne sont encore branchés.
+    State.ROUTING: frozenset({State.CHAT_ANSWER, State.SCREENSHOT, State.IDLE}),
     State.CHAT_ANSWER: frozenset({State.SPEAKING}),
     State.SCREENSHOT: frozenset({State.VISION}),
     State.VISION: frozenset({State.ACTING}),

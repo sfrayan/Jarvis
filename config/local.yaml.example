@@ -16,6 +16,11 @@
 # stt:
 #   model: large-v3
 
+# Exemple : choisir un modele vision Ollama plus leger deja installe localement
+# si qwen2.5vl:7b manque de RAM sur ta machine.
+# vision:
+#   backend_local: qwen2.5vl:3b
+
 # Exemple : activer Prometheus pour le monitoring.
 # observability:
 #   metrics_enabled: true

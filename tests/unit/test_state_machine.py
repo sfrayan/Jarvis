@@ -106,6 +106,13 @@ class TestValidTransitions:
         await sm.transition(State.LISTENING, reason="barge_in")
         assert sm.state is State.LISTENING
 
+    @pytest.mark.asyncio
+    async def test_routing_to_idle_is_temporary_router_only_exit(self) -> None:
+        """ROUTING → IDLE est autorisé tant que chat/vision ne sont pas branchés."""
+        sm = StateMachine(EventBus(), initial=State.ROUTING)
+        await sm.transition(State.IDLE, reason="router_only_iteration")
+        assert sm.state is State.IDLE
+
 
 # ---------------------------------------------------------------------
 # Transitions invalides
@@ -178,9 +185,7 @@ class TestEmergencyStop:
         [s for s in State if s is not State.EMERGENCY_STOP],
     )
     @pytest.mark.asyncio
-    async def test_emergency_stop_reachable_from_every_state(
-        self, from_state: State
-    ) -> None:
+    async def test_emergency_stop_reachable_from_every_state(self, from_state: State) -> None:
         sm = StateMachine(EventBus(), initial=from_state)
         await sm.transition(State.EMERGENCY_STOP, reason="kill_switch")
         assert sm.state is State.EMERGENCY_STOP
@@ -216,3 +221,7 @@ class TestAllowedFrom:
         allowed = StateMachine.allowed_from(State.SPEAKING)
         assert State.IDLE in allowed
         assert State.LISTENING in allowed  # barge-in
+
+    def test_routing_temporarily_allows_idle(self) -> None:
+        allowed = StateMachine.allowed_from(State.ROUTING)
+        assert State.IDLE in allowed

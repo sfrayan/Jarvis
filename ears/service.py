@@ -75,6 +75,9 @@ class VADLike(Protocol):
 class TranscriberLike(Protocol):
     """Contrat minimal du transcriber STT."""
 
+    async def warm_up(self) -> None:
+        """Charge les ressources lourdes avant ouverture du micro."""
+
     async def transcribe_chunk(self, audio: AudioChunk) -> Transcription:
         """Transcrit un segment audio complet."""
 
@@ -118,6 +121,9 @@ class EarsService:
 
         log.info("ears_service_started")
         try:
+            await self._warm_up_transcriber()
+            if self._stop_event.is_set():
+                return
             async with self._stream as stream:
                 iterator = stream.__aiter__()
                 while not self._stop_event.is_set():
@@ -249,6 +255,11 @@ class EarsService:
         flushed = self._stream.flush_pending()
         if flushed:
             log.info("ears_audio_backlog_flushed", chunks=flushed)
+
+    async def _warm_up_transcriber(self) -> None:
+        log.info("ears_stt_warmup_started")
+        await self._transcriber.warm_up()
+        log.info("ears_stt_warmup_finished")
 
 
 def _chunk_duration_ms(chunk: AudioChunk, *, sample_rate: int) -> float:

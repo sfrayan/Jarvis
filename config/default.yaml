@@ -33,7 +33,7 @@ safety:
 audio:
   sample_rate: 16000                # Hz, requis par Silero VAD et faster-whisper
   vad_threshold: 0.5                # Probabilité minimale de parole (Silero)
-  silence_timeout_ms: 800           # Silence contigu = fin d'énoncé
+  silence_timeout_ms: 1200          # Silence contigu = fin d'énoncé
   device_index: null                # null = micro par défaut de Windows
 
 # --- STT (speech-to-text) -----------------------------------------------------

@@ -5,13 +5,12 @@ Séquence de bootstrap (ordre important, cf. CLAUDE.md §Sécurité) :
 1. Charge la config (default.yaml + local.yaml).
 2. Configure structlog.
 3. **Démarre le kill switch AVANT tout autre thread applicatif**.
-4. Monte event_bus, state_machine, OODA loop et EarsService.
+4. Monte event_bus, state_machine, OODA loop, EarsService, BrainService et Hands.
 5. `asyncio.run(_run(...))` — bloque jusqu'au shutdown.
 6. Cleanup kill switch (arrête le listener pynput).
 
-En Itération 3, `EarsService` écoute le micro : VAD Silero -> STT
-faster-whisper -> événement `Transcription`. Le routeur n'existe pas encore,
-donc les transcriptions sont simplement logguées et la FSM revient en IDLE.
+En Iteration 5C, les intentions GUI locales alimentent un pipeline dry-run :
+capture d'ecran, vision locale, puis rapport Hands sans execution reelle.
 
 Arrêt manuel :
 - **F12** : kill switch → state = EMERGENCY_STOP → sortie.
@@ -26,13 +25,15 @@ import os
 import sys
 from contextlib import suppress
 
+from brain.router import IntentRouter
+from brain.service import BrainService
 from config.loader import load_config
 from config.schema import JarvisConfig
 from core.event_bus import EventBus
 from core.loop import OODALoop
 from core.state_machine import StateMachine
-from ears.events import Transcription
 from ears.service import EarsService
+from hands.service import HandsPipelineService
 from observability.logger import configure_logging, get_logger
 from safety.kill_switch import KillSwitch
 
@@ -80,40 +81,42 @@ async def _run(config: JarvisConfig, kill_switch: KillSwitch) -> None:
         event_bus=bus,
         state_machine=sm,
     )
+    brain = BrainService(
+        event_bus=bus,
+        state_machine=sm,
+        router=IntentRouter.from_config(config),
+    )
+    hands = HandsPipelineService.create_default(
+        config=config,
+        event_bus=bus,
+        state_machine=sm,
+    )
 
-    bus.subscribe(Transcription, _log_transcription)
+    hands.start()
+    brain.start()
 
     loop_task = asyncio.create_task(loop.run(), name="jarvis_ooda_loop")
     ears_task = asyncio.create_task(ears.run(), name="jarvis_ears_service")
 
-    done, pending = await asyncio.wait(
-        {loop_task, ears_task},
-        return_when=asyncio.FIRST_COMPLETED,
-    )
+    try:
+        done, pending = await asyncio.wait(
+            {loop_task, ears_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
 
-    if loop_task in done:
-        ears.stop()
-    if ears_task in done:
-        loop.stop()
+        if loop_task in done:
+            ears.stop()
+        if ears_task in done:
+            loop.stop()
 
-    await _drain_or_cancel(pending)
+        await _drain_or_cancel(pending)
 
-    for task in (loop_task, ears_task):
-        if task.done():
-            task.result()
-
-
-async def _log_transcription(event: Transcription) -> None:
-    """Handler temporaire tant que le routeur d'intention n'existe pas."""
-    log = get_logger(__name__)
-    log.info(
-        "user_transcription",
-        text=event.text,
-        language=event.language,
-        language_probability=round(event.language_probability, 3),
-        inference_duration_ms=round(event.inference_duration_ms, 1),
-        audio_duration_ms=round(event.audio_duration_ms, 1),
-    )
+        for task in (loop_task, ears_task):
+            _raise_if_failed(task)
+    finally:
+        brain.stop()
+        hands.stop()
+        await brain.wait_for_pending()
 
 
 async def _drain_or_cancel(tasks: set[asyncio.Task[None]], *, timeout_s: float = 5.0) -> None:
@@ -128,14 +131,21 @@ async def _drain_or_cancel(tasks: set[asyncio.Task[None]], *, timeout_s: float =
             await task
 
     for task in done:
-        task.result()
+        _raise_if_failed(task)
+
+
+def _raise_if_failed(task: asyncio.Task[None]) -> None:
+    """Propage les vraies erreurs, ignore les annulations de shutdown."""
+    if not task.done() or task.cancelled():
+        return
+    task.result()
 
 
 def main() -> int:
     """Entrypoint synchrone. Retourne un exit code Unix (0 = succès)."""
     config, kill_switch = _bootstrap()
     log = get_logger(__name__)
-    log.info("jarvis_starting", iteration=3)
+    log.info("jarvis_starting", iteration=5)
 
     exit_code = 0
     try:

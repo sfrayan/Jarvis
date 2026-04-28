@@ -49,6 +49,13 @@ class _FakeTranscriber:
     def __init__(self, text: str = "Bonjour Jarvis") -> None:
         self.text = text
         self.calls: list[npt.NDArray[np.int16]] = []
+        self.warm_up_count = 0
+        self.events: list[str] | None = None
+
+    async def warm_up(self) -> None:
+        self.warm_up_count += 1
+        if self.events is not None:
+            self.events.append("warm_up")
 
     async def transcribe_chunk(self, audio: npt.NDArray[np.int16]) -> Transcription:
         self.calls.append(audio)
@@ -69,8 +76,11 @@ class _FakeStream:
         self.exited = False
         self.flush_count = 0
         self.pending_to_flush = 0
+        self.events: list[str] | None = None
 
     async def __aenter__(self) -> _FakeStream:
+        if self.events is not None:
+            self.events.append("stream_enter")
         self.entered = True
         return self
 
@@ -230,8 +240,24 @@ class TestRun:
 
         assert fake_stream.entered is True
         assert fake_stream.exited is True
+        assert transcriber.warm_up_count == 1
         assert sm.state is State.IDLE
         assert len(transcriber.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_run_warms_transcriber_before_entering_stream(self) -> None:
+        stream = _FakeStream([])
+        service, _, _, _, transcriber, fake_stream = _mk_service(
+            probabilities=[],
+            stream=stream,
+        )
+        events: list[str] = []
+        transcriber.events = events
+        fake_stream.events = events
+
+        await service.run()
+
+        assert events == ["warm_up", "stream_enter"]
 
     @pytest.mark.asyncio
     async def test_stop_before_run_does_not_enter_stream(self) -> None:

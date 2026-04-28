@@ -15,6 +15,7 @@ import pytest
 from config.schema import STTConfig
 from ears.stt import (
     FasterWhisperTranscriber,
+    _clean_transcription_text,
     _int16_to_float32,
     _resolve_compute_type,
     _resolve_device,
@@ -131,6 +132,26 @@ class TestFasterWhisperTranscriber:
         await transcriber.transcribe_chunk(_audio())
         assert len(calls) == 1
 
+    @pytest.mark.asyncio
+    async def test_warm_up_loads_model_before_first_transcription(self) -> None:
+        fake_model = _FakeWhisperModel()
+        calls: list[tuple[str, str, str]] = []
+
+        def factory(model_name: str, device: str, compute_type: str) -> _FakeWhisperModel:
+            calls.append((model_name, device, compute_type))
+            return fake_model
+
+        transcriber = FasterWhisperTranscriber(
+            STTConfig(model="medium", device="cpu"),
+            model_factory=factory,
+        )
+
+        await transcriber.warm_up()
+        assert calls == [("medium", "cpu", "int8")]
+
+        await transcriber.transcribe_chunk(_audio())
+        assert len(calls) == 1
+
 
 class TestDeviceResolution:
     def test_cpu_compute_type(self) -> None:
@@ -142,10 +163,10 @@ class TestDeviceResolution:
         assert _resolve_compute_type("cuda") == "int8_float16"
 
     def test_auto_uses_torch_cuda(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("ears.stt.torch.cuda.is_available", lambda: True)
+        monkeypatch.setattr("ears.stt._torch_cuda_available", lambda: True)
         assert _resolve_device("auto") == "cuda"
 
-        monkeypatch.setattr("ears.stt.torch.cuda.is_available", lambda: False)
+        monkeypatch.setattr("ears.stt._torch_cuda_available", lambda: False)
         assert _resolve_device("auto") == "cpu"
 
     def test_invalid_device_rejected(self) -> None:
@@ -161,3 +182,13 @@ class TestAudioConversion:
         assert float(waveform[0]) == pytest.approx(-1.0)
         assert float(waveform[1]) == pytest.approx(0.0)
         assert float(waveform[2]) == pytest.approx(32767 / 32768)
+
+
+class TestTranscriptionCleanup:
+    def test_filters_repeated_video_outro_hallucination(self) -> None:
+        raw = "J'espère que ça vous a plu. J'espère que ça vous a plu. J'espère que ça vous a plu."
+        assert _clean_transcription_text(raw) == ""
+
+    def test_keeps_normal_repeated_user_command(self) -> None:
+        raw = "ouvre Discord. ouvre Chrome."
+        assert _clean_transcription_text(raw) == raw
