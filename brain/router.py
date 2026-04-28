@@ -209,6 +209,7 @@ def normalize_transcription(text: str) -> str:
         r"\bspoti\s+fi\b": "Spotify",
         r"\bspoti\s+faille\b": "Spotify",
         r"\bvolumes?\s+montent\b": "volume monte",
+        r"\bvolume\s+mode\b": "volume monte",
         r"\bc'est\s+un\s+couvre[-\s]+chrome\b": "ouvre Chrome",
         r"\bcouvre[-\s]+chrome\b": "ouvre Chrome",
         r"\bdocker\s+desque\s+top\b": "Docker Desktop",
@@ -257,6 +258,21 @@ def _heuristic_route(text: str) -> RouterModelResponse | None:
         r"\b(arrête|arrete|arrêtes|arretes|coupe|coupes)\b",
         r"\b(allume|allumes|active|actives|d.sactive|desactive|r.gle|regle)\b",
     )
+    targetless_action_patterns = (
+        r"^(ouvre|ouvres|ouvrir|ouvre-moi|m'ouvres)$",
+        r"^(lance|lances|lancer|d.marre|demarre|d.marres|demarres)$",
+        r"^(ferme|fermes|quitte|quittes|.teins|eteins|.teint|eteint|.teindre|eteindre)$",
+        r"^(arr.te|arrete|arr.tes|arretes|coupe|coupes)$",
+        r"^(allume|allumes|active|actives|d.sactive|desactive|r.gle|regle)$",
+    )
+    if _matches_any(lowered, targetless_action_patterns):
+        return RouterModelResponse(
+            intent="unknown",
+            domain="unknown",
+            confidence=0.0,
+            reason="Règle heuristique: commande incomplète",
+        )
+
     gui_patterns = (
         *action_patterns,
         r"\b(clique|clic|double clique|appuie|tape|écris|ecris)\b",

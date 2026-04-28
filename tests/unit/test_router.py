@@ -163,6 +163,7 @@ class TestIntentRouter:
             "de slide",
             "et un docker desktop",
             "Volumes montent.",
+            "volume mode.",
             "C'est un couvre-chrome.",
         ],
     )
@@ -193,6 +194,7 @@ class TestIntentRouter:
             ("ouvre mes telechargements", "gui", "folders"),
             ("mets Spotify en pause", "gui", "media"),
             ("Volumes montent.", "gui", "system"),
+            ("volume mode.", "gui", "system"),
             ("allume la lumiere du salon", "gui", "home_assistant"),
             ("au boulot", "gui", "routine"),
             ("memorise que je travaille de nuit", "chat", "memory"),
@@ -245,6 +247,24 @@ class TestIntentRouter:
 
         assert result.intent == "chat"
         assert result.domain == "general"
+        assert result.model == "heuristic"
+        assert client.calls == []
+
+    @pytest.mark.asyncio
+    async def test_targetless_action_is_unknown_without_calling_client(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        client = _FakeOllamaClient(
+            '{"intent":"gui","confidence":0.99,"reason":"ne doit pas être appelé"}'
+        )
+        router = IntentRouter(client=client, prompt_path=_prompt_file(tmp_path))
+
+        result = await router.route("ouvre.")
+
+        assert result.intent == "unknown"
+        assert result.domain == "unknown"
+        assert result.confidence == pytest.approx(0.0)
         assert result.model == "heuristic"
         assert client.calls == []
 
@@ -321,6 +341,7 @@ class TestNormalizeTranscription:
             ("key pass", "KeePass"),
             ("spoti fi", "Spotify"),
             ("Volumes montent.", "volume monte."),
+            ("volume mode.", "volume monte."),
             ("C'est un couvre-chrome.", "ouvre Chrome."),
             ("docker desque top", "Docker Desktop"),
             ("et un docker desktop", "éteins Docker Desktop"),

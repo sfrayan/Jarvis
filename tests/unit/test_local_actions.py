@@ -1,4 +1,4 @@
-"""Tests unitaires du planificateur local dry-run."""
+"""Tests unitaires du planificateur local."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import pytest
 
 from brain.events import IntentDomain, IntentRouted, IntentType
 from config.schema import SafetyConfig, SafetyMode
+from hands.executor import PlannedGuiAction
 from hands.local_actions import LocalActionPlanner
 
 pytestmark = pytest.mark.unit
@@ -27,6 +28,17 @@ def _intent(
         reason="test",
         model="heuristic",
     )
+
+
+class _FakeLocalActionBackend:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.actions: list[PlannedGuiAction] = []
+        self._fail = fail
+
+    def perform(self, action: PlannedGuiAction) -> None:
+        self.actions.append(action)
+        if self._fail:
+            raise RuntimeError("backend down")
 
 
 class TestLocalActionPlanner:
@@ -61,7 +73,8 @@ class TestLocalActionPlanner:
         assert report.actions[0].text == target
 
     def test_shutdown_pc_is_blocked(self) -> None:
-        planner = LocalActionPlanner(SafetyConfig(mode="dry_run"))
+        backend = _FakeLocalActionBackend()
+        planner = LocalActionPlanner(SafetyConfig(mode="assisted"), backend=backend)
 
         report = planner.plan(_intent("éteins le PC", domain="system"))
 
@@ -69,10 +82,12 @@ class TestLocalActionPlanner:
         assert report.status == "blocked"
         assert report.requires_human is True
         assert report.actions[0].destructive is True
+        assert backend.actions == []
 
-    @pytest.mark.parametrize("mode", ["observe", "assisted", "autonomous"])
-    def test_safety_modes_are_respected(self, mode: SafetyMode) -> None:
-        planner = LocalActionPlanner(SafetyConfig(mode=mode))
+    @pytest.mark.parametrize("mode", ["observe", "dry_run"])
+    def test_non_execution_modes_do_not_call_backend(self, mode: SafetyMode) -> None:
+        backend = _FakeLocalActionBackend()
+        planner = LocalActionPlanner(SafetyConfig(mode=mode), backend=backend)
 
         report = planner.plan(_intent("ouvre Chrome", domain="apps"))
 
@@ -80,10 +95,38 @@ class TestLocalActionPlanner:
         assert report.executed is False
         if mode == "observe":
             assert report.status == "observe"
-            assert report.requires_human is False
         else:
-            assert report.status == "blocked"
-            assert report.requires_human is True
+            assert report.status == "dry_run"
+        assert report.requires_human is False
+        assert backend.actions == []
+
+    @pytest.mark.parametrize("mode", ["assisted", "autonomous"])
+    def test_execution_modes_call_backend_for_safe_actions(self, mode: SafetyMode) -> None:
+        backend = _FakeLocalActionBackend()
+        planner = LocalActionPlanner(SafetyConfig(mode=mode), backend=backend)
+
+        report = planner.plan(_intent("ouvre Chrome", domain="apps"))
+
+        assert report is not None
+        assert report.status == "completed"
+        assert report.executed is True
+        assert report.requires_human is False
+        assert len(backend.actions) == 1
+        assert backend.actions[0].type == "launch_app"
+        assert backend.actions[0].text == "Chrome"
+
+    def test_backend_failure_blocks_action(self) -> None:
+        backend = _FakeLocalActionBackend(fail=True)
+        planner = LocalActionPlanner(SafetyConfig(mode="assisted"), backend=backend)
+
+        report = planner.plan(_intent("ouvre Chrome", domain="apps"))
+
+        assert report is not None
+        assert report.status == "blocked"
+        assert report.executed is False
+        assert report.requires_human is True
+        assert "RuntimeError" in report.reason
+        assert len(backend.actions) == 1
 
     def test_unsupported_domain_returns_none(self) -> None:
         planner = LocalActionPlanner(SafetyConfig(mode="dry_run"))

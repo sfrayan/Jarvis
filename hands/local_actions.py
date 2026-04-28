@@ -1,13 +1,16 @@
-"""Planification locale dry-run pour les commandes PC simples.
+"""Planification et execution locale pour les commandes PC simples.
 
-Iteration 5E : ce module traduit certaines intentions `apps`, `system`, `media`
-et `folders` en `HandsExecutionReport`, sans vision et sans execution reelle.
+Iteration 5G : ce module traduit certaines intentions `apps`, `system`, `media`
+et `folders` en `HandsExecutionReport`. `observe` et `dry_run` restent sans
+effet reel ; `assisted` et `autonomous` executent les actions locales sures.
 """
 
 from __future__ import annotations
 
 import re
+import time
 import unicodedata
+from typing import Protocol, cast
 
 from brain.events import IntentRouted
 from config.schema import SafetyConfig, SafetyMode
@@ -46,12 +49,128 @@ _FOLDER_ALIASES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("musique", "music"), "Music"),
 )
 
+_APP_SEARCH_TERMS = {
+    "Spotify": "Spotify",
+    "Chrome": "Google Chrome",
+    "Discord": "Discord",
+    "VS Code": "Visual Studio Code",
+    "Docker Desktop": "Docker Desktop",
+    "KeePass": "KeePass",
+    "Opera GX": "Opera GX",
+    "Opera": "Opera",
+    "Firefox": "Firefox",
+    "Edge": "Microsoft Edge",
+    "Calculator": "Calculatrice",
+    "Notepad": "Bloc-notes",
+    "Paint": "Paint",
+}
+
+_FOLDER_SHELL_COMMANDS = {
+    "Downloads": "shell:Downloads",
+    "Documents": "shell:Personal",
+    "Pictures": "shell:My Pictures",
+    "Videos": "shell:My Video",
+    "Desktop": "shell:Desktop",
+    "Music": "shell:My Music",
+}
+
+_VOLUME_KEYS = {
+    "volume_up": "volumeup",
+    "volume_down": "volumedown",
+    "mute": "volumemute",
+}
+
+_MEDIA_KEYS = {
+    "pause": "playpause",
+    "play": "playpause",
+    "next": "nexttrack",
+    "previous": "prevtrack",
+}
+
+
+class LocalActionBackend(Protocol):
+    """Contrat minimal d'un actuateur local injectable."""
+
+    def perform(self, action: PlannedGuiAction) -> None:
+        """Execute une action locale deja validee comme sure."""
+
+
+class _PyAutoGuiLike(Protocol):
+    def hotkey(self, *keys: str) -> None:
+        """Appuie sur une combinaison de touches."""
+
+    def write(self, message: str, interval: float = 0.0) -> None:
+        """Tape du texte."""
+
+    def press(self, key: str) -> None:
+        """Appuie sur une touche."""
+
+
+class PyAutoGuiLocalActionBackend:
+    """Actuateur Windows minimal base sur pyautogui."""
+
+    def perform(self, action: PlannedGuiAction) -> None:
+        """Execute l'action locale supportee."""
+        if action.type == "launch_app":
+            self._launch_app(_required_text(action))
+            return
+        if action.type == "system_tool":
+            self._open_system_tool(_required_text(action))
+            return
+        if action.type == "open_folder":
+            self._open_folder(_required_text(action))
+            return
+        if action.type == "system_volume":
+            self._press_mapped_key(_required_text(action), _VOLUME_KEYS)
+            return
+        if action.type == "media_control":
+            self._press_mapped_key(_required_text(action), _MEDIA_KEYS)
+            return
+        raise ValueError(f"Action locale non supportee: {action.type}")
+
+    def _launch_app(self, app: str) -> None:
+        term = _APP_SEARCH_TERMS.get(app)
+        if term is None:
+            raise ValueError(f"Application locale non allowlistee: {app}")
+        pyautogui = _pyautogui()
+        pyautogui.hotkey("win")
+        time.sleep(0.15)
+        pyautogui.write(term, interval=0.01)
+        pyautogui.press("enter")
+
+    def _open_system_tool(self, tool: str) -> None:
+        if tool != "Task Manager":
+            raise ValueError(f"Outil systeme non supporte: {tool}")
+        _pyautogui().hotkey("ctrl", "shift", "esc")
+
+    def _open_folder(self, folder: str) -> None:
+        command = _FOLDER_SHELL_COMMANDS.get(folder)
+        if command is None:
+            raise ValueError(f"Dossier local non allowliste: {folder}")
+        pyautogui = _pyautogui()
+        pyautogui.hotkey("win", "r")
+        time.sleep(0.15)
+        pyautogui.write(command, interval=0.01)
+        pyautogui.press("enter")
+
+    def _press_mapped_key(self, name: str, mapping: dict[str, str]) -> None:
+        key = mapping.get(name)
+        if key is None:
+            raise ValueError(f"Action clavier non supportee: {name}")
+        _pyautogui().press(key)
+
 
 class LocalActionPlanner:
-    """Produit des rapports dry-run pour les commandes locales sans vision."""
+    """Produit et execute les commandes locales sans vision."""
 
-    def __init__(self, safety: SafetyConfig) -> None:
+    def __init__(
+        self,
+        safety: SafetyConfig,
+        *,
+        backend: LocalActionBackend | None = None,
+    ) -> None:
         self._safety = safety
+        self._backend = backend or PyAutoGuiLocalActionBackend()
 
     def plan(self, event: IntentRouted) -> HandsExecutionReport | None:
         """Retourne un rapport local si l'intention est reconnue."""
@@ -63,7 +182,7 @@ class LocalActionPlanner:
         if action is None:
             return None
 
-        return _build_report(mode=self._safety.mode, action=action)
+        return _build_report(mode=self._safety.mode, action=action, backend=self._backend)
 
 
 def _match_local_action(text: str) -> PlannedGuiAction | None:
@@ -130,7 +249,12 @@ def _match_volume_action(text: str) -> PlannedGuiAction | None:
     return None
 
 
-def _build_report(*, mode: SafetyMode, action: PlannedGuiAction) -> HandsExecutionReport:
+def _build_report(
+    *,
+    mode: SafetyMode,
+    action: PlannedGuiAction,
+    backend: LocalActionBackend,
+) -> HandsExecutionReport:
     if action.destructive:
         return HandsExecutionReport(
             status="blocked",
@@ -161,6 +285,27 @@ def _build_report(*, mode: SafetyMode, action: PlannedGuiAction) -> HandsExecuti
             reason="Mode dry_run: action locale journalisee sans execution",
         )
 
+    if mode in {"assisted", "autonomous"}:
+        try:
+            backend.perform(action)
+        except Exception as exc:
+            return HandsExecutionReport(
+                status="blocked",
+                mode=mode,
+                actions=(action,),
+                executed=False,
+                requires_human=True,
+                reason=f"Action locale impossible: {type(exc).__name__}",
+            )
+        return HandsExecutionReport(
+            status="completed",
+            mode=mode,
+            actions=(action,),
+            executed=True,
+            requires_human=False,
+            reason=f"Mode {mode}: action locale executee",
+        )
+
     return HandsExecutionReport(
         status="blocked",
         mode=mode,
@@ -182,3 +327,15 @@ def _fold(text: str) -> str:
     decomposed = unicodedata.normalize("NFKD", text.casefold().replace("\u2019", "'"))
     stripped = "".join(char for char in decomposed if not unicodedata.combining(char))
     return re.sub(r"\s+", " ", stripped).strip()
+
+
+def _required_text(action: PlannedGuiAction) -> str:
+    if action.text is None:
+        raise ValueError(f"Action locale sans cible: {action.type}")
+    return action.text
+
+
+def _pyautogui() -> _PyAutoGuiLike:
+    import pyautogui
+
+    return cast(_PyAutoGuiLike, pyautogui)
