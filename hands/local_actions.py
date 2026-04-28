@@ -28,9 +28,13 @@ _APP_ALIASES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("chrome", "google chrome"), "Chrome"),
     (("discord",), "Discord"),
     (("task manager", "gestionnaire de taches"), "Task Manager"),
+    (("parametres", "settings"), "Settings"),
     (("vs code", "visual studio code"), "VS Code"),
     (("docker desktop",), "Docker Desktop"),
     (("keepass", "key pass", "qui passe"), "KeePass"),
+    (("steam",), "Steam"),
+    (("origin",), "Origin"),
+    (("ea app", "ea desktop"), "EA App"),
     (("opera gx",), "Opera GX"),
     (("opera",), "Opera"),
     (("firefox",), "Firefox"),
@@ -53,9 +57,13 @@ _APP_SEARCH_TERMS = {
     "Spotify": "Spotify",
     "Chrome": "Google Chrome",
     "Discord": "Discord",
+    "Settings": "Parametres",
     "VS Code": "Visual Studio Code",
     "Docker Desktop": "Docker Desktop",
     "KeePass": "KeePass",
+    "Steam": "Steam",
+    "Origin": "Origin",
+    "EA App": "EA App",
     "Opera GX": "Opera GX",
     "Opera": "Opera",
     "Firefox": "Firefox",
@@ -193,6 +201,10 @@ def _match_local_action(text: str) -> PlannedGuiAction | None:
             destructive=True,
         )
 
+    volume_action = _match_volume_action(text)
+    if volume_action is not None:
+        return volume_action
+
     if _CLOSE_PATTERN.search(text):
         app = _match_alias(text, _APP_ALIASES)
         if app is None:
@@ -214,10 +226,6 @@ def _match_local_action(text: str) -> PlannedGuiAction | None:
                 return PlannedGuiAction(type="system_tool", text=app)
             return PlannedGuiAction(type="launch_app", text=app)
 
-    volume_action = _match_volume_action(text)
-    if volume_action is not None:
-        return volume_action
-
     return None
 
 
@@ -228,7 +236,10 @@ def _match_media_action(text: str) -> PlannedGuiAction | None:
         return PlannedGuiAction(type="launch_app", text="Spotify")
     if re.search(r"\b(pause|mets en pause)\b", text):
         return PlannedGuiAction(type="media_control", text="pause")
-    if re.search(r"\b(reprends|resume|play|mets de la musique|met de la musique)\b", text):
+    if re.search(
+        r"\b(reprends|resume|play|active la musique|mets de la musique|met de la musique|joue de la musique)\b",
+        text,
+    ):
         return PlannedGuiAction(type="media_control", text="play")
     if re.search(r"\b(suivante|next)\b", text):
         return PlannedGuiAction(type="media_control", text="next")

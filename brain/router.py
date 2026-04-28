@@ -208,6 +208,9 @@ def normalize_transcription(text: str) -> str:
         r"\bkeep\s+pass\b": "KeePass",
         r"\bspoti\s+fi\b": "Spotify",
         r"\bspoti\s+faille\b": "Spotify",
+        r"\bopen\s*spotify\b": "ouvre Spotify",
+        r"\bou\s+spotify\b": "ouvre Spotify",
+        r"\bpour\s+spotify\b": "ouvre Spotify",
         r"\bvolumes?\s+montent\b": "volume monte",
         r"\bvolume\s+mode\b": "volume monte",
         r"\bc'est\s+un\s+couvre[-\s]+chrome\b": "ouvre Chrome",
@@ -280,6 +283,7 @@ def _heuristic_route(text: str) -> RouterModelResponse | None:
         r"\b(analyse|regarde)\b.*\b(.cran|ecran|fen.tre|fenetre)\b",
         r"\b(va sur|cherche sur|recherche sur)\b",
         r"\bvolume\b.*\b(monte|augmente|baisse|diminue|coupe|muet|mute)\b",
+        r"\b(monte|augmente|baisse|diminue|coupe|muet|mute)\b.*\bvolume\b",
         r"\b(mets|met|joue|pause|reprends|suivante|pr.c.dente|precedente)\b",
         r"\b(mode travail|au boulot|mode iron man)\b",
         r"^(de|du)\s+(slide|diapo)\b",
@@ -297,6 +301,8 @@ def _heuristic_route(text: str) -> RouterModelResponse | None:
     app_patterns = (
         r"\b(discord|chrome|spotify|docker desktop|vs code|visual studio code)\b",
         r"\b(kee?pass|opera|n8n|gestionnaire de tâches|gestionnaire de taches)\b",
+        r"\b(edge|firefox|steam|origin|ea app|param.tres|parametres)\b",
+        r"\b(calculatrice|bloc-notes|bloc notes|paint)\b",
         r"\b(prgx|powerpoint|excel|word|notion|gmail|github)\b",
     )
     if _matches_any(lowered, action_patterns) and _matches_any(lowered, app_patterns):
@@ -383,6 +389,7 @@ def _infer_domain(text: str, intent: IntentType) -> IntentDomain:
         (
             r"\b(cpu|ram|batterie|volume|heure|date|jour|mois|ann.e|annee)\b",
             r"\bvolume\b.*\b(monte|augmente|baisse|diminue|coupe|muet|mute)\b",
+            r"\b(monte|augmente|baisse|diminue|coupe|muet|mute)\b.*\bvolume\b",
             r"\b(pc|windows|shutdown|gestionnaire de t.ches|gestionnaire de taches)\b",
         ),
     ):
@@ -405,6 +412,7 @@ def _infer_domain(text: str, intent: IntentType) -> IntentDomain:
         (
             r"\b(discord|chrome|edge|firefox|opera|spotify|steam|notion|github)\b",
             r"\b(vs code|visual studio code|docker desktop|n8n|ollama|powershell)\b",
+            r"\b(origin|ea app|param.tres|parametres|calculatrice|bloc-notes|bloc notes|paint)\b",
             r"\b(keepass|powerpoint|excel|word|slide|diapo)\b",
         ),
     ):
