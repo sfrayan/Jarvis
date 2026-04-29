@@ -25,6 +25,7 @@ import os
 import sys
 from contextlib import suppress
 
+from brain.confirmation import ConfirmationManager
 from brain.draft_storage import DraftStorageService
 from brain.router import IntentRouter
 from brain.service import BrainService
@@ -85,16 +86,19 @@ async def _run(config: JarvisConfig, kill_switch: KillSwitch) -> None:
         state_machine=sm,
     )
     session_store = SessionStore(config.session_memory)
+    confirmation = ConfirmationManager()
     brain = BrainService.create_default(
         event_bus=bus,
         state_machine=sm,
         router=IntentRouter.from_config(config),
         session_store=session_store,
+        confirmation=confirmation,
     )
     hands = HandsPipelineService.create_default(
         config=config,
         event_bus=bus,
         state_machine=sm,
+        confirmation=confirmation,
     )
     voice = VoiceFeedbackService.create_default(
         event_bus=bus,

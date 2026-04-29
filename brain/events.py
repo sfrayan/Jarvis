@@ -150,3 +150,35 @@ class TaskSessionStateChanged(BaseModel):
     timestamp: float = Field(..., ge=0.0)
     session: TaskSession
     reason: str = Field(..., min_length=1)
+
+
+# ---------------------------------------------------------------------------
+# Confirmations explicites (5Q)
+# ---------------------------------------------------------------------------
+ConfirmationVerdict = Literal["confirmed", "rejected", "expired"]
+
+
+class PendingConfirmation(BaseModel):
+    """Action sensible en attente de confirmation utilisateur."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    confirmation_id: str = Field(..., min_length=1)
+    timestamp: float = Field(..., ge=0.0)
+    action_type: str = Field(..., min_length=1)
+    action_target: str | None = None
+    question: str = Field(..., min_length=1)
+    reason: str = Field(..., min_length=1)
+    expires_at: float = Field(..., ge=0.0)
+
+
+class ConfirmationResponse(BaseModel):
+    """Reponse a une demande de confirmation pendante."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    confirmation_id: str = Field(..., min_length=1)
+    timestamp: float = Field(..., ge=0.0)
+    verdict: ConfirmationVerdict
+    reason: str = Field(..., min_length=1)
+

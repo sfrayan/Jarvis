@@ -4,6 +4,9 @@
 - question ou plan : publie les evenements de dialogue et une phrase assistant ;
 - intention claire : republie `IntentRouted` pour que Hands continue le pipeline ;
 - demande incomplete : ne laisse rien partir vers Hands.
+
+En 5Q, il intercepte aussi les reponses de confirmation (oui/non) quand une
+action sensible est en attente.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
+from brain.confirmation import ConfirmationManager
 from brain.dialogue import DialogueManager, DialogueTurn
 from brain.events import IntentRouted
 from core.event_bus import EventBus
@@ -39,15 +43,39 @@ class DialogueService:
         state_machine: StateMachine,
         manager: DialogueManagerLike | None = None,
         session_store: "SessionStoreLike | None" = None,
+        confirmation: ConfirmationManager | None = None,
     ) -> None:
         from brain.dialogue import SessionStoreLike as _SSL  # noqa: F401 — type hint
 
         self._bus = event_bus
         self._sm = state_machine
         self._manager = manager or DialogueManager(session_store=session_store)
+        self._confirmation = confirmation
 
     async def process(self, routed: IntentRouted) -> None:
         """Traite une intention routee et publie les sorties adaptees."""
+        # 5Q : intercepter les reponses de confirmation pendantes
+        if self._confirmation is not None and self._confirmation.has_pending:
+            response = self._confirmation.handle_user_reply(routed.normalized_text)
+            if response is not None:
+                await self._bus.publish(response)
+                verdict_text = (
+                    "Bien recu, je confirme l'action."
+                    if response.verdict == "confirmed"
+                    else "D'accord, j'annule."
+                )
+                await self._publish_utterance(
+                    AssistantUtterance(
+                        timestamp=response.timestamp,
+                        text=verdict_text,
+                        source="dialogue",
+                        priority="info",
+                        reason=response.reason,
+                    ),
+                    reason=f"confirmation_{response.verdict}",
+                )
+                return
+
         turn = self._manager.handle(routed)
 
         await self._publish_optional(turn.session_event)

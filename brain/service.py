@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol, cast
 
+from brain.confirmation import ConfirmationManager
 from brain.dialogue_service import DialogueService
 from brain.events import IntentRouted
 from brain.router import IntentRouter
@@ -74,6 +75,7 @@ class BrainService:
         router: IntentRouter | None = None,
         dialogue: DialogueProcessorLike | None = None,
         session_store: SessionStore | None = None,
+        confirmation: ConfirmationManager | None = None,
     ) -> BrainService:
         """Factory utilisée par `main.py`."""
         return cls(
@@ -85,6 +87,7 @@ class BrainService:
                 event_bus=event_bus,
                 state_machine=state_machine,
                 session_store=session_store,
+                confirmation=confirmation,
             ),
         )
 

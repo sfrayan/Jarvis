@@ -22,6 +22,8 @@ et garde le controle utilisateur au centre.
   en JSON strict.
 - **Dialogue** : `DialogueManager` + sessions de tache en RAM pour clarifier,
   planifier et poursuivre une demande.
+- **Memoire de session** : persistance legere de la session de dialogue entre
+  deux lancements via JSON atomique avec TTL configurable. Desactivee par defaut.
 - **Demo devoir** : "Jarvis, aide-moi a faire un devoir" declenche clarification,
   plan, brouillon en RAM ou recherche web sure.
 - **Brouillons locaux** : sauvegarde Markdown controlee des `AssistantDraft`,
@@ -35,6 +37,9 @@ et garde le controle utilisateur au centre.
 - **Voice** : feedback via `AssistantUtterance`, Piper si configure, fallback log.
 - **Securite** : modes `observe`, `dry_run`, `assisted`, `autonomous`, avec kill
   switch prioritaire et blocage des actions sensibles/destructives.
+- **Confirmations explicites** : les actions sensibles (fermer une app, shutdown)
+  declenchent une demande de confirmation vocale. L'utilisateur dit "oui" ou
+  "non" et l'action est executee ou annulee avec un TTL de 60 secondes.
 
 ---
 
@@ -152,6 +157,18 @@ copy config\local.yaml.example config\local.yaml
 `config/local.yaml` est ignore par Git. Le loader fusionne un `local.yaml` situe
 a cote du fichier `default_path` utilise, ce qui evite que les tests temporaires
 soient pollues par la config locale du repo.
+
+Memoire de session :
+
+```yaml
+session_memory:
+  enabled: true
+  directory: data/sessions
+  expiry_hours: 4.0
+```
+
+Quand activee, Jarvis sauvegarde la session de dialogue courante sur disque et
+la restaure au prochain lancement si elle n'a pas expire.
 
 Sauvegarde des brouillons :
 
@@ -296,10 +313,10 @@ Unitaires :
 pytest tests/unit -m unit
 ```
 
-Etat connu avant 5N :
+Etat connu apres 5Q :
 
 ```text
-513 passed
+583 passed
 ```
 
 Integration :
@@ -335,14 +352,15 @@ mypy .
 | 5L | Brouillons en RAM via `AssistantDraft` | Fait |
 | 5M | README synchronise avec l'etat reel | Fait |
 | 5N | Sauvegarde locale controlee des brouillons | Fait |
+| 5O | Memoire de session entre deux lancements | Fait |
+| 5P | README synchronise apres 5O | Fait |
+| 5Q | Confirmations explicites pour actions sensibles | Fait |
 
 Prochaines pistes utiles :
 
-- memoire temporaire pour restaurer une session entre deux lancements ;
-- routines plus completes : devoir, code, recherche, focus ;
-- confirmations explicites pour actions sensibles ;
+- routines plus completes : execution sequentielle d'un plan ;
 - verification post-action par vision uniquement quand necessaire ;
-- memoire temporaire puis preferences utilisateur avec consentement.
+- preferences utilisateur avec consentement.
 
 ---
 

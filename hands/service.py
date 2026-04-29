@@ -3,13 +3,18 @@
 Iteration 5C : ce service branche les briques 5A/5B sans execution reelle. Une
 intention GUI locale declenche une capture d'ecran, une analyse vision locale,
 puis un rapport `HandsExecutionReport` publie sur l'EventBus.
+
+Iteration 5Q : les rapports bloques (`requires_human=True`) declenchent une
+demande de confirmation vocale. L'utilisateur dit "oui" ou "non" et l'action
+est executee ou rejetee.
 """
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from brain.events import IntentRouted
+from brain.confirmation import ConfirmationManager
+from brain.events import ConfirmationResponse, IntentRouted, PendingConfirmation
 from brain.vision_contracts import VisionDecision, human_required_decision
 from brain.vision_local import LocalVisionClient
 from config.schema import JarvisConfig
@@ -77,7 +82,10 @@ class _NoopBrowserActionPlanner:
 
 
 class HandsPipelineService:
-    """Service reactif : IntentRouted(gui) -> rapport Hands dry-run."""
+    """Service reactif : IntentRouted(gui) -> rapport Hands dry-run.
+
+    En 5Q, les rapports bloques declenchent une confirmation vocale.
+    """
 
     def __init__(
         self,
@@ -89,6 +97,7 @@ class HandsPipelineService:
         executor: HandsExecutorLike,
         local_actions: LocalActionPlannerLike,
         browser_actions: BrowserActionPlannerLike | None = None,
+        confirmation: ConfirmationManager | None = None,
         monitor_index: int = 0,
     ) -> None:
         self._bus = event_bus
@@ -98,8 +107,10 @@ class HandsPipelineService:
         self._executor = executor
         self._local_actions = local_actions
         self._browser_actions = browser_actions or _NoopBrowserActionPlanner()
+        self._confirmation = confirmation or ConfirmationManager()
         self._monitor_index = monitor_index
         self._subscription: SubscriptionHandle | None = None
+        self._confirm_subscription: SubscriptionHandle | None = None
 
     @classmethod
     def create_default(
@@ -108,6 +119,7 @@ class HandsPipelineService:
         config: JarvisConfig,
         event_bus: EventBus,
         state_machine: StateMachine,
+        confirmation: ConfirmationManager | None = None,
     ) -> HandsPipelineService:
         """Factory utilisee par `main.py`."""
         return cls(
@@ -118,25 +130,36 @@ class HandsPipelineService:
             executor=DryRunHandsExecutor(config.safety),
             local_actions=LocalActionPlanner(config.safety),
             browser_actions=BrowserActionPlanner(config.safety),
+            confirmation=confirmation,
         )
 
     def start(self) -> None:
-        """S'abonne aux intentions routees. Idempotent."""
+        """S'abonne aux intentions routees et aux confirmations. Idempotent."""
         if self._subscription is not None and self._subscription.active:
             return
         self._subscription = self._bus.subscribe(IntentRouted, self._on_intent_routed)
+        self._confirm_subscription = self._bus.subscribe(
+            ConfirmationResponse, self._on_confirmation_response,
+        )
         log.info("hands_pipeline_started")
 
     def stop(self) -> None:
-        """Retire l'abonnement. Idempotent."""
+        """Retire les abonnements. Idempotent."""
         if self._subscription is not None:
             self._subscription.unsubscribe()
             self._subscription = None
+        if self._confirm_subscription is not None:
+            self._confirm_subscription.unsubscribe()
+            self._confirm_subscription = None
+        self._confirmation.clear()
         log.info("hands_pipeline_stopped")
 
     async def _on_intent_routed(self, event: IntentRouted) -> None:
         local_report = self._local_actions.plan(event)
         if local_report is not None:
+            if local_report.requires_human:
+                await self._request_confirmation(local_report)
+                return
             await self._bus.publish(local_report)
             await self._publish_feedback(
                 feedback_from_hands_report(local_report),
@@ -317,6 +340,113 @@ class HandsPipelineService:
             reason=reason,
         )
         return False
+
+    # ------------------------------------------------------------------
+    # Confirmations explicites (5Q)
+    # ------------------------------------------------------------------
+    async def _request_confirmation(self, report: HandsExecutionReport) -> None:
+        """Enregistre l'action et publie la demande de confirmation."""
+        pending = self._confirmation.request_confirmation(report)
+        await self._bus.publish(pending)
+        await self._publish_feedback(
+            AssistantUtterance(
+                timestamp=pending.timestamp,
+                text=pending.question,
+                source="hands",
+                priority="warning",
+                reason=pending.reason,
+            ),
+            reason="confirmation_requested",
+        )
+
+    async def _on_confirmation_response(self, event: ConfirmationResponse) -> None:
+        """Traite la reponse a une confirmation pendante."""
+        pending = self._confirmation.pending
+        if pending is None:
+            log.debug(
+                "confirmation_response_no_pending",
+                confirmation_id=event.confirmation_id,
+            )
+            return
+
+        if event.confirmation_id != pending.confirmation_id:
+            log.debug(
+                "confirmation_response_id_mismatch",
+                expected=pending.confirmation_id,
+                received=event.confirmation_id,
+            )
+            return
+
+        self._confirmation.clear()
+
+        if event.verdict == "confirmed":
+            await self._execute_confirmed(pending.report)
+        else:
+            reason = "Confirmation rejetee" if event.verdict == "rejected" else "Confirmation expiree"
+            await self._publish_feedback(
+                AssistantUtterance(
+                    timestamp=event.timestamp,
+                    text=f"D'accord, j'annule l'action. {reason}.",
+                    source="hands",
+                    priority="info",
+                    reason=reason,
+                ),
+                reason=f"confirmation_{event.verdict}",
+            )
+
+    async def _execute_confirmed(self, report: HandsExecutionReport) -> None:
+        """Execute l'action apres confirmation explicite."""
+        import time as _time
+
+        from hands.local_actions import PyAutoGuiLocalActionBackend
+
+        if not report.actions:
+            return
+
+        action = report.actions[0]
+        if report.mode not in {"assisted", "autonomous"}:
+            # En dry_run/observe, on ne fait que publier le rapport initial
+            await self._bus.publish(report)
+            await self._publish_feedback(
+                feedback_from_hands_report(report),
+                reason="confirmed_but_mode_prevents_execution",
+            )
+            return
+
+        backend = PyAutoGuiLocalActionBackend()
+        try:
+            backend.perform(action)
+        except Exception as exc:
+            log.warning(
+                "hands_confirmed_execution_failed",
+                error=str(exc),
+                action_type=action.type,
+            )
+            await self._publish_feedback(
+                AssistantUtterance(
+                    timestamp=_time.time(),
+                    text=f"L'action a echoue apres confirmation: {type(exc).__name__}.",
+                    source="hands",
+                    priority="error",
+                    reason=f"confirmed_execution_failed: {exc}",
+                ),
+                reason="confirmed_execution_failed",
+            )
+            return
+
+        executed_report = HandsExecutionReport(
+            status="completed",
+            mode=report.mode,
+            actions=report.actions,
+            executed=True,
+            requires_human=False,
+            reason="Action executee apres confirmation explicite",
+        )
+        await self._bus.publish(executed_report)
+        await self._publish_feedback(
+            feedback_from_hands_report(executed_report),
+            reason="confirmed_execution_completed",
+        )
 
 
 def _should_use_vision_pipeline(event: IntentRouted) -> bool:
