@@ -6,11 +6,13 @@ import asyncio
 
 import pytest
 
+from brain.dialogue_service import DialogueService
 from brain.events import IntentRouted, IntentType
 from brain.service import BrainService
 from core.event_bus import EventBus
 from core.state_machine import State, StateMachine, StateTransition
 from ears.events import Transcription
+from voice.feedback import AssistantUtterance
 
 pytestmark = pytest.mark.unit
 
@@ -133,6 +135,47 @@ class TestBrainService:
 
         assert sm.state is State.EMERGENCY_STOP
         assert received == []
+
+    @pytest.mark.asyncio
+    async def test_injected_dialogue_blocks_incomplete_task_from_hands(self) -> None:
+        bus = EventBus()
+        sm = StateMachine(bus, initial=State.TRANSCRIBING)
+        routed = IntentRouted(
+            timestamp=2.0,
+            original_text="j'ai un devoir a faire",
+            normalized_text="j'ai un devoir a faire",
+            intent="chat",
+            domain="general",
+            confidence=0.9,
+            reason="test",
+            model="test",
+        )
+        service = BrainService(
+            event_bus=bus,
+            state_machine=sm,
+            router=_FakeRouter(routed),
+            dialogue=DialogueService(event_bus=bus, state_machine=sm),
+        )
+        received: list[IntentRouted] = []
+        utterances: list[AssistantUtterance] = []
+
+        async def intent_handler(event: IntentRouted) -> None:
+            received.append(event)
+
+        async def utterance_handler(event: AssistantUtterance) -> None:
+            utterances.append(event)
+
+        bus.subscribe(IntentRouted, intent_handler)
+        bus.subscribe(AssistantUtterance, utterance_handler)
+        service.start()
+
+        await bus.publish(_transcription("j'ai un devoir a faire"))
+        await service.wait_for_pending()
+
+        assert received == []
+        assert utterances[0].source == "dialogue"
+        assert "consigne exacte" in utterances[0].text
+        assert sm.state is State.IDLE
 
     @pytest.mark.asyncio
     async def test_stop_unsubscribes(self) -> None:

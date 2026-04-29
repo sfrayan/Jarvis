@@ -19,6 +19,7 @@ prête à recevoir les abonnements.
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 
 from core.event_bus import EventBus
 from core.state_machine import InvalidTransitionError, State, StateMachine
@@ -85,10 +86,8 @@ class OODALoop:
             # les warnings "Task was destroyed but it is pending!".
             for task in pending:
                 task.cancel()
-                try:
+                with suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
             # Route selon qui a déclenché la sortie.
             if kill_task in done:

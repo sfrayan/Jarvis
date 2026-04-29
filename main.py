@@ -82,7 +82,7 @@ async def _run(config: JarvisConfig, kill_switch: KillSwitch) -> None:
         event_bus=bus,
         state_machine=sm,
     )
-    brain = BrainService(
+    brain = BrainService.create_default(
         event_bus=bus,
         state_machine=sm,
         router=IntentRouter.from_config(config),

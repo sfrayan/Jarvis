@@ -17,6 +17,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from brain.task_session import TaskSession, TaskSessionKind
+
 IntentType = Literal["chat", "gui", "unknown"]
 IntentDomain = Literal[
     "general",
@@ -78,3 +80,40 @@ class IntentRouted(BaseModel):
         min_length=1,
         description="Modele ayant produit la decision (ex qwen3:latest)",
     )
+
+
+class ClarificationQuestion(BaseModel):
+    """Question posee quand une demande est incomplete."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    timestamp: float = Field(..., ge=0.0)
+    session_id: str = Field(..., min_length=1)
+    kind: TaskSessionKind
+    question: str = Field(..., min_length=1)
+    missing_slots: tuple[str, ...] = ()
+    reason: str = Field(..., min_length=1)
+
+
+class AssistantPlan(BaseModel):
+    """Plan de travail propose avant toute action sensible ou ambigue."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    timestamp: float = Field(..., ge=0.0)
+    session_id: str = Field(..., min_length=1)
+    kind: TaskSessionKind
+    summary: str = Field(..., min_length=1)
+    steps: tuple[str, ...] = Field(..., min_length=1)
+    requires_confirmation: bool = True
+    reason: str = Field(..., min_length=1)
+
+
+class TaskSessionStateChanged(BaseModel):
+    """Snapshot publie quand la session de tache evolue."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    timestamp: float = Field(..., ge=0.0)
+    session: TaskSession
+    reason: str = Field(..., min_length=1)

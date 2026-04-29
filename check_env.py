@@ -28,9 +28,9 @@ from typing import Any, Literal, NamedTuple
 # Couleurs ANSI (Windows Terminal / PowerShell 5+ les supportent nativement)
 # -----------------------------------------------------------------------------
 class _C:
-    OK = "\033[32m"      # vert
-    WARN = "\033[33m"    # jaune
-    FAIL = "\033[31m"    # rouge
+    OK = "\033[32m"  # vert
+    WARN = "\033[33m"  # jaune
+    FAIL = "\033[31m"  # rouge
     CYAN = "\033[36m"
     BOLD = "\033[1m"
     DIM = "\033[2m"
@@ -129,7 +129,7 @@ def check_screen() -> CheckResult:
             return CheckResult(
                 "Écran",
                 "OK",
-                f"{len(monitors) - 1} moniteur(s) · primaire {primary['width']}×{primary['height']}",
+                f"{len(monitors) - 1} moniteur(s) · primaire {primary['width']}x{primary['height']}",
             )
     except Exception as exc:  # bibliothèque externe, cause inconnue a priori
         return CheckResult("Écran", "FAIL", f"erreur mss : {exc}")

@@ -16,7 +16,7 @@ from brain.events import IntentRouted
 from hands.executor import HandsExecutionReport, PlannedGuiAction
 
 AssistantFeedbackPriority = Literal["info", "warning", "error"]
-AssistantFeedbackSource = Literal["hands"]
+AssistantFeedbackSource = Literal["hands", "dialogue"]
 
 _LOCAL_DOMAINS = frozenset({"apps", "folders", "media", "system"})
 

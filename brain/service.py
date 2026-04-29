@@ -1,11 +1,10 @@
 """Service de routage d'intention.
 
 `BrainService` s'abonne aux transcriptions produites par `ears/`, appelle
-`IntentRouter`, puis publie `IntentRouted`.
+`IntentRouter`, puis delegue au dialogue.
 
-En Itération 4, il ne déclenche encore ni réponse vocale ni action GUI. Après
-routage, la FSM revient à `IDLE` via la transition temporaire
-`ROUTING -> IDLE` validée pour cette itération.
+Le dialogue peut poser une question, proposer un plan, ou relayer une intention
+claire vers Hands.
 """
 
 from __future__ import annotations
@@ -13,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol, cast
 
+from brain.dialogue_service import DialogueService
 from brain.events import IntentRouted
 from brain.router import IntentRouter
 from core.event_bus import EventBus, SubscriptionHandle
@@ -39,8 +39,15 @@ class IntentRouterLike(Protocol):
         """Route un texte utilisateur en intention."""
 
 
+class DialogueProcessorLike(Protocol):
+    """Contrat minimal du service de dialogue."""
+
+    async def process(self, routed: IntentRouted) -> None:
+        """Traite une intention routee."""
+
+
 class BrainService:
-    """Service réactif : Transcription -> IntentRouted."""
+    """Service reactif : Transcription -> IntentRouted -> Dialogue."""
 
     def __init__(
         self,
@@ -48,10 +55,12 @@ class BrainService:
         event_bus: EventBus,
         state_machine: StateMachine,
         router: IntentRouterLike,
+        dialogue: DialogueProcessorLike | None = None,
     ) -> None:
         self._bus = event_bus
         self._sm = state_machine
         self._router = router
+        self._dialogue = dialogue
         self._subscription: SubscriptionHandle | None = None
         self._routing_tasks: set[asyncio.Task[None]] = set()
 
@@ -62,12 +71,18 @@ class BrainService:
         event_bus: EventBus,
         state_machine: StateMachine,
         router: IntentRouter | None = None,
+        dialogue: DialogueProcessorLike | None = None,
     ) -> BrainService:
         """Factory utilisée par `main.py`."""
         return cls(
             event_bus=event_bus,
             state_machine=state_machine,
             router=router if router is not None else IntentRouter(),
+            dialogue=dialogue
+            or DialogueService(
+                event_bus=event_bus,
+                state_machine=state_machine,
+            ),
         )
 
     def start(self) -> None:
@@ -117,7 +132,10 @@ class BrainService:
             )
             return
 
-        await self._bus.publish(routed)
+        if self._dialogue is None:
+            await self._bus.publish(routed)
+        else:
+            await self._dialogue.process(routed)
         log_fn = log.debug if _is_low_value_unknown(routed) else log.info
         log_fn(
             "intent_routed",
@@ -126,7 +144,7 @@ class BrainService:
             reason=routed.reason,
         )
         if self._sm.state is State.ROUTING:
-            await self._transition_if_allowed(State.IDLE, reason="router_only_iteration")
+            await self._transition_if_allowed(State.IDLE, reason="dialogue_iteration_finished")
 
     def _on_routing_task_done(self, task: asyncio.Future[None]) -> None:
         routing_task = cast(asyncio.Task[None], task)
