@@ -24,6 +24,8 @@ et garde le controle utilisateur au centre.
   planifier et poursuivre une demande.
 - **Demo devoir** : "Jarvis, aide-moi a faire un devoir" declenche clarification,
   plan, brouillon en RAM ou recherche web sure.
+- **Brouillons locaux** : sauvegarde Markdown controlee des `AssistantDraft`,
+  desactivee par defaut et limitee a un dossier relatif configure.
 - **Hands local** : planification prudente d'apps, dossiers, media et systeme,
   via inventaire local readonly et registre de capacites.
 - **Hands navigateur** : recherches Google/YouTube via Chrome sans vision quand
@@ -150,6 +152,17 @@ copy config\local.yaml.example config\local.yaml
 `config/local.yaml` est ignore par Git. Le loader fusionne un `local.yaml` situe
 a cote du fichier `default_path` utilise, ce qui evite que les tests temporaires
 soient pollues par la config locale du repo.
+
+Sauvegarde des brouillons :
+
+```yaml
+drafts:
+  enabled: true
+  directory: data/drafts
+```
+
+Meme activee, la sauvegarde ecrit seulement en `assisted` ou `autonomous`.
+En `observe` et `dry_run`, Jarvis publie un rapport sans creer de fichier.
 
 Il est possible de choisir un autre fichier de config :
 
@@ -283,7 +296,7 @@ Unitaires :
 pytest tests/unit -m unit
 ```
 
-Etat connu apres 5L :
+Etat connu avant 5N :
 
 ```text
 513 passed
@@ -321,10 +334,11 @@ mypy .
 | 5K | Demo devoir bout en bout | Fait |
 | 5L | Brouillons en RAM via `AssistantDraft` | Fait |
 | 5M | README synchronise avec l'etat reel | Fait |
+| 5N | Sauvegarde locale controlee des brouillons | Fait |
 
 Prochaines pistes utiles :
 
-- sauvegarde optionnelle de brouillons, en `dry_run` par defaut ;
+- memoire temporaire pour restaurer une session entre deux lancements ;
 - routines plus completes : devoir, code, recherche, focus ;
 - confirmations explicites pour actions sensibles ;
 - verification post-action par vision uniquement quand necessaire ;

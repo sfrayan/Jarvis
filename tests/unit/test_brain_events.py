@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from brain.events import AssistantDraft, IntentDomain, IntentRouted
+from brain.events import AssistantDraft, DraftSaveReport, IntentDomain, IntentRouted
 from core.event_bus import EventBus
 
 pytestmark = pytest.mark.unit
@@ -162,5 +162,30 @@ class TestAssistantDraft:
                 context="Contexte",
                 sections=(),
                 body="Corps",
+                reason="test",
+            )
+
+
+class TestDraftSaveReport:
+    def test_construct_saved_report(self) -> None:
+        report = DraftSaveReport(
+            timestamp=3.0,
+            session_id="task-3",
+            status="saved",
+            path="data/drafts/task-3.md",
+            saved=True,
+            reason="test",
+        )
+
+        assert report.status == "saved"
+        assert report.saved is True
+        assert report.requires_human is False
+
+    def test_invalid_save_status_is_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            DraftSaveReport(
+                timestamp=3.0,
+                session_id="task-3",
+                status="written",  # type: ignore[arg-type]
                 reason="test",
             )

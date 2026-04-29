@@ -25,6 +25,7 @@ import os
 import sys
 from contextlib import suppress
 
+from brain.draft_storage import DraftStorageService
 from brain.router import IntentRouter
 from brain.service import BrainService
 from config.loader import load_config
@@ -96,7 +97,13 @@ async def _run(config: JarvisConfig, kill_switch: KillSwitch) -> None:
         event_bus=bus,
         tts_config=config.tts,
     )
+    drafts = DraftStorageService.create_default(
+        event_bus=bus,
+        config=config.drafts,
+        safety=config.safety,
+    )
 
+    drafts.start()
     voice.start()
     hands.start()
     brain.start()
@@ -123,6 +130,7 @@ async def _run(config: JarvisConfig, kill_switch: KillSwitch) -> None:
         brain.stop()
         hands.stop()
         voice.stop()
+        drafts.stop()
         await brain.wait_for_pending()
 
 

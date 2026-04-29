@@ -25,6 +25,11 @@
 # tts:
 #   backend: piper
 
+# Exemple : sauvegarder les brouillons en assisted/autonomous seulement.
+# drafts:
+#   enabled: true
+#   directory: data/drafts
+
 # Exemple : activer Prometheus pour le monitoring.
 # observability:
 #   metrics_enabled: true

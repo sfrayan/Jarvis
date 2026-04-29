@@ -36,6 +36,7 @@ logs/
 models/
 screenshots/
 recordings/
+data/drafts/
 
 # --- IDE ---
 .idea/

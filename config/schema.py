@@ -141,6 +141,25 @@ class TTSConfig(BaseModel):
 
 
 # -----------------------------------------------------------------------------
+# Brouillons locaux
+# -----------------------------------------------------------------------------
+class DraftStorageConfig(BaseModel):
+    """Configuration de sauvegarde locale des brouillons assistant."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(
+        default=False,
+        description="Active la sauvegarde locale des AssistantDraft",
+    )
+    directory: str = Field(
+        default="data/drafts",
+        min_length=1,
+        description="Dossier relatif autorise pour les brouillons Markdown",
+    )
+
+
+# -----------------------------------------------------------------------------
 # Cloud fallback (optionnel)
 # -----------------------------------------------------------------------------
 class CloudConfig(BaseModel):
@@ -187,5 +206,6 @@ class JarvisConfig(BaseModel):
     stt: STTConfig = Field(default_factory=STTConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
     tts: TTSConfig = Field(default_factory=TTSConfig)
+    drafts: DraftStorageConfig = Field(default_factory=DraftStorageConfig)
     cloud: CloudConfig = Field(default_factory=CloudConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)

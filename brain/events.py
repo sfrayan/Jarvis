@@ -125,6 +125,23 @@ class AssistantDraft(BaseModel):
     reason: str = Field(..., min_length=1)
 
 
+DraftSaveStatus = Literal["disabled", "observe", "dry_run", "saved", "blocked"]
+
+
+class DraftSaveReport(BaseModel):
+    """Rapport de sauvegarde locale d'un brouillon assistant."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    timestamp: float = Field(..., ge=0.0)
+    session_id: str = Field(..., min_length=1)
+    status: DraftSaveStatus
+    path: str | None = Field(default=None, min_length=1)
+    saved: bool = False
+    requires_human: bool = False
+    reason: str = Field(..., min_length=1)
+
+
 class TaskSessionStateChanged(BaseModel):
     """Snapshot publie quand la session de tache evolue."""
 
