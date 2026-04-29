@@ -91,3 +91,27 @@ class TestDialogueService:
         assert intents[0].domain == "web_search"
         assert utterances == []
         assert sm.state is State.IDLE
+
+    @pytest.mark.asyncio
+    async def test_routine_plan_is_not_relayed_to_hands_channel(self) -> None:
+        bus = EventBus()
+        sm = StateMachine(bus, initial=State.ROUTING)
+        service = DialogueService(event_bus=bus, state_machine=sm)
+        intents: list[IntentRouted] = []
+        utterances: list[AssistantUtterance] = []
+
+        async def intent_handler(event: IntentRouted) -> None:
+            intents.append(event)
+
+        async def utterance_handler(event: AssistantUtterance) -> None:
+            utterances.append(event)
+
+        bus.subscribe(IntentRouted, intent_handler)
+        bus.subscribe(AssistantUtterance, utterance_handler)
+
+        await service.process(_intent("mode code", intent="gui", domain="routine"))
+
+        assert intents == []
+        assert utterances[0].source == "dialogue"
+        assert "Mode code" in utterances[0].text
+        assert sm.state is State.IDLE

@@ -121,6 +121,31 @@ class TestDialogueManager:
         assert session is not None
         assert session.status == "ready"
 
+    def test_routine_mode_code_produces_plan_without_hands_intent(self) -> None:
+        manager = DialogueManager(clock=_Clock())
+
+        turn = manager.handle(_intent("mode code", intent="gui", domain="routine"))
+
+        assert turn.decision == "plan"
+        assert turn.intent is None
+        assert turn.plan is not None
+        assert turn.plan.summary.startswith("Preparation prudente")
+        assert turn.utterance is not None
+        assert "Mode code" in turn.utterance.text
+        assert "Ouvrir VS Code" in turn.utterance.text
+
+    def test_routine_mode_research_produces_safe_plan(self) -> None:
+        manager = DialogueManager(clock=_Clock())
+
+        turn = manager.handle(_intent("mode recherche", intent="gui", domain="routine"))
+
+        assert turn.decision == "plan"
+        assert turn.intent is None
+        assert turn.plan is not None
+        assert "recherche web" in turn.plan.summary
+        assert turn.utterance is not None
+        assert "Google ou YouTube" in turn.utterance.text
+
     def test_vague_video_session_builds_safe_youtube_search_after_reply(self) -> None:
         manager = DialogueManager(clock=_Clock())
         manager.handle(_intent("cherche moi une video sur ca", intent="unknown", domain="unknown"))

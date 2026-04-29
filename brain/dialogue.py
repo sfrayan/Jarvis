@@ -22,6 +22,7 @@ from brain.events import (
     IntentRouted,
     TaskSessionStateChanged,
 )
+from brain.routines import RoutinePlan, plan_routine
 from brain.task_session import (
     TaskSession,
     TaskSessionKind,
@@ -92,6 +93,12 @@ class DialogueManager:
         template = _detect_incomplete_request(routed, text)
         if template is not None:
             return self._start_session(routed, template, now=now)
+
+        routine = plan_routine(routed.normalized_text)
+        if routine is not None and (
+            routed.domain == "routine" or _looks_like_routine_request(text)
+        ):
+            return self._routine_plan_turn(routed, routine, now=now)
 
         if routed.intent == "chat":
             return self._chat_response(routed, text, now=now)
@@ -487,6 +494,46 @@ class DialogueManager:
             reason=reason,
         )
 
+    def _routine_plan_turn(
+        self,
+        routed: IntentRouted,
+        routine: RoutinePlan,
+        *,
+        now: float,
+    ) -> DialogueTurn:
+        session = TaskSession(
+            session_id=make_session_id(now),
+            kind="work_setup",
+            status="ready",
+            original_request=routed.normalized_text,
+            summary=routine.summary,
+            missing_slots=(),
+            plan_steps=routine.steps,
+            created_at=now,
+            updated_at=now,
+        )
+        self._session = session
+        plan = AssistantPlan(
+            timestamp=now,
+            session_id=session.session_id,
+            kind=session.kind,
+            summary=routine.summary,
+            steps=routine.steps,
+            requires_confirmation=True,
+            reason=f"Routine sure: {routine.title}",
+        )
+        return DialogueTurn(
+            decision="plan",
+            utterance=_utterance(
+                _routine_message(routine),
+                reason=plan.reason,
+                now=now,
+            ),
+            plan=plan,
+            session_event=_session_event(session, reason=plan.reason, now=now),
+            reason=plan.reason,
+        )
+
 
 def _plan_message(session: TaskSession, steps: tuple[str, ...]) -> str:
     numbered = " ".join(f"{index}. {step}" for index, step in enumerate(steps, start=1))
@@ -501,6 +548,21 @@ def _next_step_question(session: TaskSession) -> str:
     if session.kind == "work_setup":
         return "Dis-moi les outils a ouvrir, et je les preparerai prudemment."
     return "Dis-moi par quoi tu veux commencer."
+
+
+def _routine_message(routine: RoutinePlan) -> str:
+    steps = " ".join(f"{index}. {step}" for index, step in enumerate(routine.steps, start=1))
+    suggestions = _routine_suggestions_text(routine)
+    return (
+        f"{routine.title}. Je propose un plan prudent: {steps}{suggestions} {routine.next_question}"
+    )
+
+
+def _routine_suggestions_text(routine: RoutinePlan) -> str:
+    if not routine.suggestions:
+        return ""
+    labels = ", ".join(suggestion.label for suggestion in routine.suggestions)
+    return f" Options possibles ensuite: {labels}."
 
 
 def _detect_incomplete_request(
@@ -595,6 +657,15 @@ def _looks_like_work_setup_request(text: str) -> bool:
     return bool(
         re.search(r"\b(ouvre|prepare|organise)\b", text)
         and re.search(r"\b(ce qu'il faut|environnement|espace|routine|travail|bosser)\b", text)
+    )
+
+
+def _looks_like_routine_request(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(mode travail|mode devoir|mode code|mode recherche|mode concentration|routine|au boulot)\b",
+            text,
+        )
     )
 
 
