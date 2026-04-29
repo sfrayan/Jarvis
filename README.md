@@ -1,30 +1,61 @@
 # Jarvis
 
-Agent IA vocal **local-first** pour Windows 11 : écoute permanente, vision de l'écran, actions souris/clavier, voix FR naturelle. Stack 100 % locale par défaut, cloud optionnel.
+Agent IA vocal **local-first** pour Windows 11.
 
-> **État** : Itération 1 terminée (scaffolding uniquement). Aucune logique applicative — `main.py` arrivera en Itération 2. Consulter la roadmap en fin de document.
+Jarvis vise un assistant personnel utile au quotidien : il ecoute, route les
+intentions, dialogue quand la demande est incomplete, planifie prudemment,
+declenche les actions locales ou navigateur seulement quand elles sont claires,
+et garde le controle utilisateur au centre.
+
+> **Etat reel du projet** : le README etait en retard. Jarvis n'est plus un
+> simple scaffolding : `main.py` monte deja config, kill switch, EventBus,
+> StateMachine, boucle OODA, Ears, Brain, Dialogue, Hands et Voice.
 
 ---
 
-## Prérequis
+## Capacites Actuelles
 
-| Composant | Minimum | Recommandé |
+- **Bootstrap applicatif** : `main.py` charge la config, configure les logs,
+  demarre le kill switch, puis lance les services.
+- **Ears** : pipeline audio avec VAD Silero et STT faster-whisper.
+- **Brain** : routeur d'intentions avec heuristiques locales et fallback Ollama
+  en JSON strict.
+- **Dialogue** : `DialogueManager` + sessions de tache en RAM pour clarifier,
+  planifier et poursuivre une demande.
+- **Demo devoir** : "Jarvis, aide-moi a faire un devoir" declenche clarification,
+  plan, brouillon en RAM ou recherche web sure.
+- **Hands local** : planification prudente d'apps, dossiers, media et systeme,
+  via inventaire local readonly et registre de capacites.
+- **Hands navigateur** : recherches Google/YouTube via Chrome sans vision quand
+  l'intention `web_search` est reconnue.
+- **Vision** : capture ecran + client vision local seulement pour le domaine
+  `vision`, pas pour les actions simples.
+- **Voice** : feedback via `AssistantUtterance`, Piper si configure, fallback log.
+- **Securite** : modes `observe`, `dry_run`, `assisted`, `autonomous`, avec kill
+  switch prioritaire et blocage des actions sensibles/destructives.
+
+---
+
+## Prerequis
+
+| Composant | Minimum | Recommande |
 |---|---|---|
 | OS | Windows 10/11 | Windows 11 |
 | Python | 3.11 | 3.11.9+ |
-| Docker Desktop | avec backend WSL2 | 4.28+ |
-| GPU | CPU only possible (lent) | NVIDIA ≥ 8 Go VRAM |
+| Docker Desktop | backend WSL2 | 4.28+ |
 | RAM | 16 Go | 32 Go |
 | Disque libre | 30 Go | 60 Go+ |
 | Micro / HP | n'importe lequel | casque USB |
+| Ollama | local ou Docker | modele local chaud |
 
-**Ollama** peut tourner soit en natif (installé sur Windows), soit dans le conteneur fourni par `docker-compose.yml`. Ce projet utilise par défaut l'Ollama conteneurisé — voir [Pièges connus](#pièges-connus).
+Jarvis tourne en natif Windows pour pouvoir acceder au bureau. Les services
+Docker restent optionnels selon la configuration : Ollama, Piper, ChromaDB, n8n.
 
 ---
 
-## Installation (première fois)
+## Installation
 
-Toutes les commandes ci-dessous sont à exécuter en **PowerShell** depuis la racine du repo (`C:\Jarvis`).
+Toutes les commandes sont a executer en PowerShell depuis `C:\Jarvis`.
 
 ```powershell
 python -m venv .venv
@@ -46,41 +77,39 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-Démarrer les services dockerisés (Ollama, ChromaDB, Piper TTS, n8n) :
+Pour les services Docker :
 
 ```powershell
 docker compose up -d
 ```
 
-Télécharger les modèles Ollama **dans le conteneur** (important, voir pièges) :
+Modeles Ollama utiles :
 
 ```powershell
 docker exec jarvis-ollama ollama pull qwen3:latest
 ```
+
 ```powershell
 docker exec jarvis-ollama ollama pull qwen2.5-coder:7b
 ```
+
 ```powershell
 docker exec jarvis-ollama ollama pull deepseek-coder:6.7b
 ```
+
 ```powershell
 docker exec jarvis-ollama ollama pull qwen2.5vl:7b
 ```
-```powershell
-docker exec jarvis-ollama ollama pull nomic-embed-text
-```
 
-Total à télécharger : **~20 Go**. Vérifier ensuite :
+Verifier l'environnement :
 
 ```powershell
 python check_env.py
 ```
 
-Objectif : `9/10 OK · 1 WARN · 0 FAIL` (le WARN sur GPU CUDA disparaît si tu installes torch en variante CUDA — facultatif).
-
 ---
 
-## Démarrage quotidien
+## Demarrage
 
 ```powershell
 docker compose up -d
@@ -91,18 +120,16 @@ docker compose up -d
 ```
 
 ```powershell
-python check_env.py
+python main.py
 ```
 
-`python main.py` **sera disponible à partir de l'Itération 2**. Pour l'instant, seul le scaffolding est en place.
-
-Arrêt des services (sans perte de données) :
+Arret des services Docker :
 
 ```powershell
 docker compose down
 ```
 
-Reset complet (⚠ supprime les volumes, donc les modèles Ollama, la base ChromaDB et les workflows n8n) :
+Reset complet des volumes Docker :
 
 ```powershell
 docker compose down -v
@@ -110,79 +137,171 @@ docker compose down -v
 
 ---
 
-## Architecture
+## Configuration
 
-```
-C:\Jarvis\
-├── main.py                    # Point d'entrée (Itération 2+)
-├── check_env.py               # Diagnostic d'environnement
-├── docker-compose.yml         # 4 services : ollama, chromadb, piper-tts, n8n
-├── config/                    # YAML par défaut + schéma Pydantic
-├── core/                      # Boucle OODA, state machine, event bus
-├── ears/                      # VAD (Silero) + STT (faster-whisper)
-├── brain/                     # Routeur intent, vision locale, mémoire RAG
-├── hands/                     # Souris, clavier, capture d'écran
-├── voice/                     # Client TTS Piper
-├── safety/                    # Kill switch, allowlist, dry_run
-├── integrations/              # n8n, v0, NotebookLM (optionnels)
-├── observability/             # structlog, métriques Prometheus
-└── tests/                     # unit + integration
+La configuration par defaut est dans `config/default.yaml`.
+
+Pour les reglages locaux, creer :
+
+```powershell
+copy config\local.yaml.example config\local.yaml
 ```
 
-`jarvis-core` tourne en **natif Windows**, hors Docker, pour accéder au bureau. Il joint les 4 conteneurs via `host.docker.internal`.
+`config/local.yaml` est ignore par Git. Le loader fusionne un `local.yaml` situe
+a cote du fichier `default_path` utilise, ce qui evite que les tests temporaires
+soient pollues par la config locale du repo.
+
+Il est possible de choisir un autre fichier de config :
+
+```powershell
+$env:JARVIS_CONFIG_PATH = "config/default.yaml"
+```
 
 ---
 
-## Modes de sécurité
-
-Défini par `safety.mode` dans `config/default.yaml` (override via `config/local.yaml` ou variable `JARVIS_SAFETY_MODE`).
+## Modes De Securite
 
 | Mode | Comportement |
 |---|---|
-| `observe` | Écoute + transcrit + loggue. **Aucune action GUI exécutée.** |
-| `dry_run` (**défaut**) | Calcule les actions, les loggue, n'exécute pas. |
-| `assisted` | Exécute, sauf actions destructives → confirmation vocale. |
-| `autonomous` | Exécute tout sauf destructif. |
+| `observe` | Observe, route et journalise. Aucune execution reelle. |
+| `dry_run` | Planifie et publie les rapports, sans executer. Mode par defaut. |
+| `assisted` | Execute les actions sures, demande confirmation pour le sensible. |
+| `autonomous` | Execute seulement les actions sures et non destructives. |
 
-Pour activer `autonomous`, les deux conditions suivantes doivent être réunies :
-1. `safety.mode: autonomous` dans `config/local.yaml`.
-2. `JARVIS_I_UNDERSTAND_THE_RISKS=true` dans `.env`.
+Regles permanentes :
+
+- kill switch prioritaire ;
+- pas de suppression de fichiers sans confirmation explicite ;
+- pas de modification de services Windows sans confirmation explicite ;
+- pas d'admin sans explication et confirmation ;
+- cloud uniquement en fallback optionnel.
 
 ---
 
-## Kill switch
+## Kill Switch
 
-Le listener `pynput` (Itération 2) surveille trois déclencheurs **globaux**, actifs même quand Jarvis n'a pas le focus :
+Le kill switch est demarre avant la boucle OODA.
 
-- **F12** pressé une fois
-- **Échap** maintenu > 1 seconde
-- **Souris poussée dans le coin haut-gauche** (pyautogui.FAILSAFE)
+Declencheurs prevus :
 
-Effets immédiats : vidage des queues, fermeture des connexions HTTP, transition `EMERGENCY_STOP`, log niveau `CRITICAL`.
+- `F12` ;
+- `Echap` maintenu plus d'une seconde ;
+- coin haut-gauche via `pyautogui.FAILSAFE`.
 
-Reset : commande vocale « Jarvis, reprends » + confirmation explicite.
+Effet attendu : transition vers `EMERGENCY_STOP`, arret propre des services et
+priorite absolue sur le reste du pipeline.
+
+---
+
+## Architecture
+
+```text
+C:\Jarvis\
+|-- main.py                    # Bootstrap runtime
+|-- check_env.py               # Diagnostic environnement
+|-- docker-compose.yml         # Services locaux optionnels
+|-- config\                    # YAML + schemas Pydantic
+|-- core\                      # EventBus, StateMachine, OODA loop
+|-- ears\                      # AudioStream, VAD, STT, EarsService
+|-- brain\                     # Router, Dialogue, sessions, vision locale
+|-- hands\                     # Inventaire, capacites, local/browser/vision
+|-- voice\                     # Feedback vocal/log, Piper
+|-- safety\                    # Kill switch
+|-- observability\             # structlog
+|-- tests\                     # Tests unitaires et integration
+```
+
+Flux principal :
+
+```text
+Audio
+-> EarsService
+-> Transcription
+-> BrainService
+-> IntentRouter
+-> DialogueService
+-> HandsPipelineService ou AssistantUtterance
+-> VoiceFeedbackService
+```
+
+Le `DialogueManager` reste volontairement separe du routeur : le routeur classe
+l'intention, le dialogue decide s'il faut clarifier, planifier, produire un
+brouillon ou relayer vers Hands.
+
+---
+
+## Exemples
+
+### Devoir
+
+Utilisateur :
+
+```text
+Jarvis j'ai un devoir a faire
+```
+
+Jarvis demande la consigne, la matiere, le niveau et la date limite. Quand ces
+informations sont fournies, il propose un plan puis peut :
+
+- generer un brouillon en RAM via `AssistantDraft` ;
+- relayer une recherche Google/YouTube sure vers le planner navigateur.
+
+### Recherche YouTube
+
+```text
+cherche une video YouTube sur les chats
+```
+
+Le domaine `web_search` passe directement vers `BrowserActionPlanner`, sans
+screenshot et sans vision.
+
+### Action locale
+
+```text
+ouvre Chrome
+```
+
+Jarvis consulte les capacites locales, planifie l'ouverture selon le mode de
+securite, puis publie un feedback clair.
+
+### Vision
+
+```text
+regarde l'ecran et clique sur enregistrer
+```
+
+Le domaine `vision` declenche capture d'ecran, analyse locale et execution
+dry-run/controlee selon les garde-fous.
 
 ---
 
 ## Tests
 
-Unitaires rapides (pas d'I/O externe, pas de conteneurs) :
+Unitaires :
 
 ```powershell
 pytest tests/unit -m unit
 ```
 
-Intégration (nécessite Docker up + Ollama joignable) :
+Etat connu apres 5L :
+
+```text
+513 passed
+```
+
+Integration :
 
 ```powershell
 pytest tests/integration -m integration
 ```
 
-Lint + types :
+Lint :
 
 ```powershell
 ruff check .
 ```
+
+Types :
 
 ```powershell
 mypy .
@@ -190,56 +309,69 @@ mypy .
 
 ---
 
-## Pièges connus
+## Roadmap Courte
 
-### Ollama natif vs conteneurisé
+| Iteration | Contenu | Statut |
+|---|---|---|
+| 1 | Scaffolding, Docker, config, check_env | Fait |
+| 2-5G | Kill switch, OODA, Ears, Brain, Hands, Voice | Fait |
+| 5H | Dialogue interactif + sessions de tache | Fait |
+| 5I | Feedback naturel et contextuel | Fait |
+| 5J | Routines sures de travail/code/recherche | Fait |
+| 5K | Demo devoir bout en bout | Fait |
+| 5L | Brouillons en RAM via `AssistantDraft` | Fait |
+| 5M | README synchronise avec l'etat reel | Fait |
 
-Si tu avais Ollama installé **nativement** avant ce projet, ses modèles ne sont **pas** visibles depuis le conteneur `jarvis-ollama`. Le compose utilise un volume Docker séparé (`jarvis_ollama_models`).
+Prochaines pistes utiles :
 
-**Solution** : `docker exec jarvis-ollama ollama pull <model>` pour chaque modèle (coûte ~20 Go de re-téléchargement mais archi reproductible).
-
-**Alternative** : supprimer le service `ollama` du `docker-compose.yml` et garder `OLLAMA_BASE_URL=http://host.docker.internal:11434` pointant vers l'Ollama natif — économise bande passante et disque, au prix d'une archi mi-dockerisée.
-
-### Contraintes GPU (6 Go VRAM typique)
-
-Sur une RTX 2060 / 3060 / équivalent avec **6 Go VRAM**, `qwen2.5vl:7b` (~5.5 Go en Q4) + `faster-whisper medium` (~1.5 Go) ne tiennent **pas** simultanément sur le GPU. Itération 3+ routera : vision sur GPU, STT sur CPU, ou inverse selon l'état courant.
-
-### Espace disque
-
-Le stack pèse ~20 Go côté Ollama + quelques Go pour les autres conteneurs. Si tu gardes un Ollama natif en parallèle, tu doubles la consommation. `docker system prune -a --volumes` avant reset complet peut libérer beaucoup.
-
-### Torch CPU vs CUDA
-
-`pip install -r requirements.txt` installe torch en variante CPU (pulled transitif par `silero-vad`). Pour activer l'accélération GPU :
-
-```powershell
-pip install --force-reinstall torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
-```
-
-### Microphone bloqué par Windows
-
-Paramètres → Confidentialité et sécurité → Microphone → autoriser les applications de bureau.
+- sauvegarde optionnelle de brouillons, en `dry_run` par defaut ;
+- routines plus completes : devoir, code, recherche, focus ;
+- confirmations explicites pour actions sensibles ;
+- verification post-action par vision uniquement quand necessaire ;
+- memoire temporaire puis preferences utilisateur avec consentement.
 
 ---
 
-## Roadmap
+## Pieges Connus
 
-| Itération | Contenu | Statut |
-|---|---|---|
-| **1** | Scaffolding : arbo, Docker, config, check_env | ✅ |
-| **2** | Kill switch (priorité absolue) + boucle OODA + state machine | ☐ |
-| **3** | Ears : VAD Silero + STT faster-whisper | ☐ |
-| **4** | Brain : routeur qwen3 + vision qwen2.5vl | ☐ |
-| **5** | Hands : actuators pyautogui + capture mss + scaling | ☐ |
-| **6** | Voice : client Piper Wyoming + streaming audio | ☐ |
-| **7** | Brain cloud fallback : Anthropic Computer Use | ☐ |
-| **8** | Integrations : n8n client + RAG ChromaDB | ☐ |
-| **9** | Observabilité : Prometheus + Grafana (profile monitoring) | ☐ |
+### Ollama natif vs Docker
 
-Méthode de travail : lecture → roadmap → attente → patch. Un fichier majeur par livraison. Voir `CLAUDE.md`.
+Les modeles d'un Ollama natif ne sont pas visibles depuis le conteneur
+`jarvis-ollama`. Utiliser `docker exec jarvis-ollama ollama pull <model>` si le
+compose gere Ollama, ou configurer `OLLAMA_BASE_URL` vers l'Ollama natif.
+
+### GPU et modeles
+
+Sur une carte avec 6 Go de VRAM, vision locale et STT moyen peuvent ne pas tenir
+simultanement sur GPU. Garder un chemin CPU ou alterner les charges.
+
+### Config locale
+
+`config/local.yaml` peut activer `assisted` ou Piper. Les tests unitaires doivent
+rester isoles de cette config locale.
+
+### Piper
+
+Si `tts.backend: piper` est configure mais que Piper n'est pas disponible, le
+fallback log peut prendre le relais si `fallback_to_log: true`.
+
+---
+
+## Methode De Travail
+
+Le projet suit la discipline de `AGENTS.md` et `CLAUDE.md` :
+
+1. lecture du code existant ;
+2. roadmap courte ;
+3. validation explicite ;
+4. patch petit et testable ;
+5. verification avec commandes de test.
+
+Les reponses, commentaires et docs restent en francais. Les noms de classes,
+fonctions et variables restent en anglais.
 
 ---
 
 ## Licence
 
-Projet personnel. Aucune diffusion externe prévue.
+Projet personnel. Aucune diffusion externe prevue.
