@@ -3,6 +3,10 @@
 Une `TaskSession` garde le contexte temporaire en RAM entre deux phrases
 utilisateur. Elle ne decide aucune action GUI : elle decrit seulement ce que
 Jarvis a compris, ce qui manque encore, et l'etat courant de la tache.
+
+En 5R, le champ `routine_kind` trace le type de routine associee (work, code,
+research, focus, homework) pour permettre l'execution sequentielle des
+suggestions d'actions.
 """
 
 from __future__ import annotations
@@ -48,6 +52,11 @@ class TaskSession(BaseModel):
     updated_at: float = Field(..., ge=0.0)
     last_question: str | None = Field(default=None, min_length=1)
     last_user_reply: str | None = Field(default=None, min_length=1)
+    routine_kind: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Type de routine associee (work, code, research, focus, homework)",
+    )
 
     def slot_value(self, name: str) -> str | None:
         """Retourne la valeur d'un slot par nom, si elle existe."""

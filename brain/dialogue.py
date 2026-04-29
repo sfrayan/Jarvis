@@ -26,7 +26,7 @@ from brain.events import (
     IntentRouted,
     TaskSessionStateChanged,
 )
-from brain.routines import RoutinePlan, plan_routine
+from brain.routines import RoutinePlan, match_routine_suggestion, plan_routine
 from brain.task_session import (
     TaskSession,
     TaskSessionKind,
@@ -211,6 +211,8 @@ class DialogueManager:
     ) -> DialogueTurn | None:
         if session.kind == "homework":
             return self._continue_ready_homework(session, routed, text, now=now)
+        if session.kind == "work_setup":
+            return self._continue_ready_routine(session, routed, text, now=now)
         return None
 
     def _continue_ready_homework(
@@ -226,6 +228,61 @@ class DialogueManager:
         if _looks_like_homework_draft_choice(text):
             return self._homework_draft_turn(session, routed, now=now)
         return None
+
+    def _continue_ready_routine(
+        self,
+        session: TaskSession,
+        routed: IntentRouted,
+        text: str,
+        *,
+        now: float,
+    ) -> DialogueTurn | None:
+        """Traite la reponse utilisateur dans une session routine prete.
+
+        Si la reponse matche une suggestion executable (local ou browser),
+        genere un IntentRouted vers Hands. Sinon, retourne None pour laisser
+        le flux normal continuer.
+        """
+        if session.routine_kind is None:
+            return None
+
+        match = match_routine_suggestion(text, routine_kind=session.routine_kind)
+        if match is None:
+            return None
+
+        # Determiner l'intent/domain d'apres le kind de la suggestion
+        if match.suggestion.kind == "local":
+            domain = "apps"
+        elif match.suggestion.kind == "browser":
+            domain = "web_search"
+        else:
+            return None
+
+        updated = session.with_update(
+            now=now,
+            last_user_reply=routed.normalized_text,
+        )
+        self._set_session(updated)
+
+        return DialogueTurn(
+            decision="pass_through",
+            intent=IntentRouted(
+                timestamp=now,
+                original_text=routed.original_text,
+                normalized_text=match.normalized_command,
+                intent="gui",
+                domain=domain,
+                confidence=0.95,
+                reason=f"Suggestion routine executee: {match.suggestion.label}",
+                model="dialogue",
+            ),
+            session_event=_session_event(
+                updated,
+                reason=f"Routine {session.routine_kind}: {match.suggestion.label}",
+                now=now,
+            ),
+            reason=f"Routine {session.routine_kind}: suggestion relayee vers Hands",
+        )
 
     def _continue_homework(
         self,
@@ -579,6 +636,7 @@ class DialogueManager:
             plan_steps=routine.steps,
             created_at=now,
             updated_at=now,
+            routine_kind=routine.kind,
         )
         self._set_session(session)
         plan = AssistantPlan(

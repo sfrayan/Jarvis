@@ -231,3 +231,45 @@ class TestDialogueManager:
         assert turn.utterance is not None
         assert turn.utterance.priority == "warning"
         assert "confirmation explicite" in turn.utterance.text
+
+    # ------------------------------------------------------------------
+    # Tests 5R : execution des suggestions de routine
+    # ------------------------------------------------------------------
+    def test_routine_code_ouvre_vscode_relays_to_hands(self) -> None:
+        manager = DialogueManager(clock=_Clock())
+        manager.handle(_intent("mode code", intent="gui", domain="routine"))
+
+        turn = manager.handle(_intent("ouvre VS Code"))
+
+        assert turn.decision == "pass_through"
+        assert turn.intent is not None
+        assert turn.intent.intent == "gui"
+        assert turn.intent.domain == "apps"
+        assert turn.intent.normalized_text == "ouvre VS Code"
+        assert "VS Code" in turn.reason
+
+    def test_routine_research_google_relays_to_hands(self) -> None:
+        manager = DialogueManager(clock=_Clock())
+        manager.handle(_intent("mode recherche", intent="gui", domain="routine"))
+
+        turn = manager.handle(
+            _intent("ouvre une recherche Google sur Python")
+        )
+
+        assert turn.decision == "pass_through"
+        assert turn.intent is not None
+        assert turn.intent.intent == "gui"
+        assert turn.intent.domain == "web_search"
+
+    def test_routine_unrelated_reply_falls_through(self) -> None:
+        manager = DialogueManager(clock=_Clock())
+        manager.handle(_intent("mode code", intent="gui", domain="routine"))
+
+        # Phrase qui ne matche aucune suggestion
+        turn = manager.handle(
+            _intent("raconte-moi une blague", intent="chat", domain="general")
+        )
+
+        # Devrait tomber dans le flux chat normal
+        assert turn.decision == "respond"
+        assert turn.intent is None

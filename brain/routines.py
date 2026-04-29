@@ -50,6 +50,70 @@ def plan_routine(text: str) -> RoutinePlan | None:
     return _ROUTINES[kind]
 
 
+def get_routine(kind: str) -> RoutinePlan | None:
+    """Retourne un plan de routine par son identifiant."""
+    return _ROUTINES.get(kind)  # type: ignore[arg-type]
+
+
+class RoutineSuggestionMatch(BaseModel):
+    """Resultat du matching d'une reponse utilisateur contre les suggestions."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    suggestion: RoutineActionSuggestion
+    normalized_command: str = Field(..., min_length=1)
+
+
+def match_routine_suggestion(
+    text: str,
+    *,
+    routine_kind: str,
+) -> RoutineSuggestionMatch | None:
+    """Cherche si la reponse utilisateur correspond a une suggestion executable.
+
+    Ne matche que les suggestions `kind=local` ou `kind=browser`. Les suggestions
+    `kind=dialogue` sont du dialogue pur et ne declenchent pas d'action Hands.
+    """
+    routine = get_routine(routine_kind)
+    if routine is None:
+        return None
+
+    folded = _fold(text)
+    for suggestion in routine.suggestions:
+        if suggestion.kind == "dialogue":
+            continue  # les suggestions dialogue ne sont pas executables
+        if _matches_suggestion(folded, suggestion):
+            command = suggestion.command or suggestion.label
+            return RoutineSuggestionMatch(
+                suggestion=suggestion,
+                normalized_command=command,
+            )
+    return None
+
+
+def _matches_suggestion(text: str, suggestion: RoutineActionSuggestion) -> bool:
+    """Verifie si le texte utilisateur correspond a une suggestion."""
+    label_folded = _fold(suggestion.label)
+    if label_folded in text:
+        return True
+
+    if suggestion.command is not None:
+        command_folded = _fold(suggestion.command)
+        if command_folded in text:
+            return True
+        # Extraire les mots-cles de la commande
+        keywords = [w for w in command_folded.split() if len(w) > 2]
+        if keywords and all(kw in text for kw in keywords):
+            return True
+
+    # Matching par mots-cles du label
+    label_keywords = [w for w in label_folded.split() if len(w) > 3]
+    if len(label_keywords) >= 2 and all(kw in text for kw in label_keywords):
+        return True
+
+    return False
+
+
 def _infer_routine_kind(text: str) -> RoutineKind | None:
     if re.search(r"\b(devoir|exercice|revision|revisions)\b", text):
         return "homework"
