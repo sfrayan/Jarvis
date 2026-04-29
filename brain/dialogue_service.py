@@ -50,6 +50,7 @@ class DialogueService:
         await self._publish_optional(turn.session_event)
         await self._publish_optional(turn.clarification)
         await self._publish_optional(turn.plan)
+        await self._publish_optional(turn.draft)
 
         if turn.intent is not None:
             await self._publish_intent(turn.intent, reason=turn.reason)

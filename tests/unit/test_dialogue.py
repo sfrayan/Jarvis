@@ -154,10 +154,15 @@ class TestDialogueManager:
 
         turn = manager.handle(_intent("commence par le brouillon"))
 
-        assert turn.decision == "plan"
+        assert turn.decision == "draft"
         assert turn.intent is None
-        assert turn.plan is not None
-        assert turn.plan.requires_confirmation is False
+        assert turn.plan is None
+        assert turn.draft is not None
+        assert turn.draft.kind == "homework"
+        assert turn.draft.title.startswith("Brouillon de maths")
+        assert "Consigne:" in turn.draft.context
+        assert "Premiere version" in turn.draft.body
+        assert len(turn.draft.sections) == 4
         assert turn.utterance is not None
         assert "brouillon structure" in turn.utterance.text
         assert "fonctions" in turn.utterance.text

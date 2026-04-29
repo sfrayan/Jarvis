@@ -17,6 +17,7 @@ config/local.yaml
 # --- Caches outils ---
 .pytest_cache/
 .pytest_tmp/
+.codex_pytest_tmp/
 .mypy_cache/
 .ruff_cache/
 .coverage

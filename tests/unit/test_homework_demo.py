@@ -76,3 +76,24 @@ def test_homework_help_demo_reaches_browser_dry_run_search() -> None:
         "https://www.google.com/search?"
         "q=exercice+sur+les+fonctions+en+maths+niveau+seconde+pour+demain"
     )
+
+
+def test_homework_help_demo_can_create_in_memory_draft() -> None:
+    manager = DialogueManager(clock=_Clock())
+
+    first = manager.handle(_intent("Jarvis j'ai un devoir a faire"))
+    second = manager.handle(
+        _intent("Consigne: exercice sur les fonctions en maths niveau seconde pour demain")
+    )
+    third = manager.handle(_intent("commence par le brouillon"))
+
+    assert first.decision == "clarify"
+    assert second.decision == "plan"
+    assert third.decision == "draft"
+    assert third.intent is None
+    assert third.draft is not None
+    assert third.draft.title.startswith("Brouillon de maths")
+    assert "exercice sur les fonctions" in third.draft.context
+    assert "Premiere version" in third.draft.body
+    assert third.utterance is not None
+    assert "recherche ciblee" in third.utterance.text

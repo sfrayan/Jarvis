@@ -109,6 +109,22 @@ class AssistantPlan(BaseModel):
     reason: str = Field(..., min_length=1)
 
 
+class AssistantDraft(BaseModel):
+    """Brouillon de travail genere en RAM, sans ecriture fichier."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    timestamp: float = Field(..., ge=0.0)
+    session_id: str = Field(..., min_length=1)
+    kind: TaskSessionKind
+    title: str = Field(..., min_length=1)
+    context: str = Field(..., min_length=1)
+    sections: tuple[str, ...] = Field(..., min_length=1)
+    body: str = Field(..., min_length=1)
+    next_steps: tuple[str, ...] = ()
+    reason: str = Field(..., min_length=1)
+
+
 class TaskSessionStateChanged(BaseModel):
     """Snapshot publie quand la session de tache evolue."""
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from brain.events import IntentDomain, IntentRouted
+from brain.events import AssistantDraft, IntentDomain, IntentRouted
 from core.event_bus import EventBus
 
 pytestmark = pytest.mark.unit
@@ -132,3 +132,35 @@ class TestEventBusIntegration:
         assert len(received) == 1
         assert received[0].intent == "chat"
         assert received[0].confidence == pytest.approx(0.77)
+
+
+class TestAssistantDraft:
+    def test_construct_valid_homework_draft(self) -> None:
+        draft = AssistantDraft(
+            timestamp=2.0,
+            session_id="task-2",
+            kind="homework",
+            title="Brouillon de maths",
+            context="Consigne: exercice. Matiere: maths.",
+            sections=("Comprendre", "Rediger"),
+            body="Premiere version du brouillon.",
+            next_steps=("Relire",),
+            reason="test",
+        )
+
+        assert draft.kind == "homework"
+        assert draft.sections == ("Comprendre", "Rediger")
+        assert draft.next_steps == ("Relire",)
+
+    def test_empty_draft_sections_are_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            AssistantDraft(
+                timestamp=2.0,
+                session_id="task-2",
+                kind="homework",
+                title="Brouillon",
+                context="Contexte",
+                sections=(),
+                body="Corps",
+                reason="test",
+            )

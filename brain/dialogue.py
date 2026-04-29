@@ -17,6 +17,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from brain.events import (
+    AssistantDraft,
     AssistantPlan,
     ClarificationQuestion,
     IntentRouted,
@@ -32,7 +33,7 @@ from brain.task_session import (
 )
 from voice.feedback import AssistantFeedbackPriority, AssistantUtterance
 
-DialogueDecision = Literal["pass_through", "clarify", "plan", "respond", "cancel"]
+DialogueDecision = Literal["pass_through", "clarify", "plan", "draft", "respond", "cancel"]
 
 _HOMEWORK_REQUIRED = ("instruction", "subject", "level", "deadline")
 _CODING_REQUIRED = ("app_type",)
@@ -52,6 +53,7 @@ class DialogueTurn(BaseModel):
     utterance: AssistantUtterance | None = None
     clarification: ClarificationQuestion | None = None
     plan: AssistantPlan | None = None
+    draft: AssistantDraft | None = None
     session_event: TaskSessionStateChanged | None = None
 
 
@@ -611,32 +613,24 @@ class DialogueManager:
         *,
         now: float,
     ) -> DialogueTurn:
-        steps = _homework_draft_steps(session)
+        draft = _homework_draft(session, now=now)
         updated = session.with_update(
             now=now,
-            plan_steps=steps,
+            plan_steps=draft.sections,
             last_user_reply=routed.normalized_text,
         )
         self._session = updated
-        plan = AssistantPlan(
-            timestamp=now,
-            session_id=updated.session_id,
-            kind=updated.kind,
-            summary="Brouillon guide du devoir",
-            steps=steps,
-            requires_confirmation=False,
-            reason="Brouillon devoir demande apres le plan",
-        )
+        draft = draft.model_copy(update={"session_id": updated.session_id})
         return DialogueTurn(
-            decision="plan",
+            decision="draft",
             utterance=_utterance(
-                _homework_draft_message(updated, steps),
-                reason=plan.reason,
+                _homework_draft_message(updated, draft),
+                reason=draft.reason,
                 now=now,
             ),
-            plan=plan,
-            session_event=_session_event(updated, reason=plan.reason, now=now),
-            reason=plan.reason,
+            draft=draft,
+            session_event=_session_event(updated, reason=draft.reason, now=now),
+            reason=draft.reason,
         )
 
 
@@ -734,28 +728,102 @@ def _clean_homework_query_part(text: str) -> str:
     return cleaned.strip(" .,!?:;")
 
 
-def _homework_draft_steps(session: TaskSession) -> tuple[str, ...]:
+def _homework_draft(session: TaskSession, *, now: float) -> AssistantDraft:
+    title = _homework_draft_title(session)
+    context = _homework_draft_context(session)
+    sections = _homework_draft_sections()
+    return AssistantDraft(
+        timestamp=now,
+        session_id=session.session_id,
+        kind=session.kind,
+        title=title,
+        context=context,
+        sections=sections,
+        body=_homework_draft_body(session, title=title),
+        next_steps=(
+            "Complete les exemples ou calculs avec tes propres elements.",
+            "Demande-moi une recherche ciblee si une notion manque.",
+            "Relis le brouillon avec la date limite et la consigne sous les yeux.",
+        ),
+        reason="Brouillon devoir genere en RAM",
+    )
+
+
+def _homework_draft_title(session: TaskSession) -> str:
+    subject = session.slot_value("subject")
+    instruction = session.slot_value("instruction") or "devoir"
+    topic = _shorten_text(_clean_homework_query_part(instruction), max_length=55)
+    if subject is None:
+        return f"Brouillon de devoir: {topic}"
+    return f"Brouillon de {subject}: {topic}"
+
+
+def _homework_draft_context(session: TaskSession) -> str:
+    subject = session.slot_value("subject") or "matiere a confirmer"
+    level = session.slot_value("level") or "niveau a confirmer"
+    deadline = session.slot_value("deadline") or "date limite a confirmer"
+    instruction = session.slot_value("instruction") or "consigne a completer"
+    return (
+        f"Consigne: {instruction}. Matiere: {subject}. Niveau: {level}. "
+        f"Date limite: {deadline}."
+    )
+
+
+def _homework_draft_sections() -> tuple[str, ...]:
+    return (
+        "Comprendre la consigne",
+        "Lister les notions utiles",
+        "Rediger une premiere reponse",
+        "Verifier et ameliorer",
+    )
+
+
+def _homework_draft_body(session: TaskSession, *, title: str) -> str:
     instruction = session.slot_value("instruction") or "la consigne exacte"
     subject = session.slot_value("subject") or "la matiere"
     level = session.slot_value("level")
     deadline = session.slot_value("deadline")
     level_text = f"niveau {level}" if level is not None else "au bon niveau"
     deadline_text = f"avant {deadline}" if deadline is not None else "avant la date limite"
-    return (
-        f"Reformuler la consigne en une phrase claire: {instruction}.",
-        f"Lister les idees ou notions utiles en {subject}, avec un langage {level_text}.",
-        f"Rediger une premiere reponse courte, puis relire {deadline_text}.",
+    return "\n".join(
+        (
+            title,
+            "",
+            f"Je reformule la consigne: {instruction}.",
+            (
+                f"Pour avancer en {subject}, je repere d'abord les mots importants, "
+                f"les notions du cours et ce qui est attendu {level_text}."
+            ),
+            (
+                "Premiere version: je presente la methode, j'explique chaque idee "
+                "dans l'ordre, puis j'ajoute les exemples, calculs ou citations utiles."
+            ),
+            (
+                f"Avant de rendre le devoir, je verifie que chaque partie repond bien "
+                f"a la consigne et je relis {deadline_text}."
+            ),
+        )
     )
 
 
-def _homework_draft_message(session: TaskSession, steps: tuple[str, ...]) -> str:
+def _homework_draft_message(session: TaskSession, draft: AssistantDraft) -> str:
     subject = session.slot_value("subject")
     subject_text = f" pour {subject}" if subject is not None else ""
-    numbered = " ".join(f"{index}. {step}" for index, step in enumerate(steps, start=1))
-    return (
-        f"Je commence par un brouillon structure{subject_text}: {numbered} "
-        "Ensuite, donne-moi tes idees ou demande-moi une recherche ciblee."
+    sections = " ".join(
+        f"{index}. {section}" for index, section in enumerate(draft.sections, start=1)
     )
+    return (
+        f"J'ai prepare un brouillon structure{subject_text}: {draft.title}. "
+        f"Il suit {sections}. Donne-moi tes idees, ou demande une recherche ciblee."
+    )
+
+
+def _shorten_text(text: str, *, max_length: int) -> str:
+    cleaned = re.sub(r"\s+", " ", text).strip(" .")
+    if len(cleaned) <= max_length:
+        return cleaned or "devoir"
+    shortened = cleaned[:max_length].rsplit(" ", 1)[0].strip(" .")
+    return shortened or cleaned[:max_length].strip(" .")
 
 
 def _detect_incomplete_request(

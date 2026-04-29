@@ -25,13 +25,14 @@ from config.schema import JarvisConfig
 
 def load_config(
     default_path: str | Path = "config/default.yaml",
-    local_path: str | Path = "config/local.yaml",
+    local_path: str | Path | None = None,
 ) -> JarvisConfig:
     """Charge et valide la configuration Jarvis.
 
     Args:
         default_path: Chemin du YAML par défaut (obligatoire).
-        local_path: Chemin du YAML override (optionnel).
+        local_path: Chemin du YAML override (optionnel). Si absent, Jarvis
+            cherche `local.yaml` a cote du fichier par defaut.
 
     Returns:
         Instance `JarvisConfig` validée.
@@ -49,7 +50,9 @@ def load_config(
         raw = yaml.safe_load(f)
     data: dict[str, Any] = raw if isinstance(raw, dict) else {}
 
-    local_file = Path(local_path)
+    local_file = (
+        Path(local_path) if local_path is not None else default_file.with_name("local.yaml")
+    )
     if local_file.exists():
         with local_file.open(encoding="utf-8") as f:
             local_raw = yaml.safe_load(f)

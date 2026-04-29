@@ -6,6 +6,7 @@ import pytest
 
 from brain.dialogue_service import DialogueService
 from brain.events import (
+    AssistantDraft,
     AssistantPlan,
     ClarificationQuestion,
     IntentDomain,
@@ -155,3 +156,40 @@ class TestDialogueService:
         assert len(intents) == 1
         assert intents[0].domain == "web_search"
         assert intents[0].normalized_text.startswith("cherche sur Google exercice")
+
+    @pytest.mark.asyncio
+    async def test_homework_draft_is_published_without_relaying_intent(self) -> None:
+        bus = EventBus()
+        sm = StateMachine(bus, initial=State.ROUTING)
+        service = DialogueService(event_bus=bus, state_machine=sm)
+        intents: list[IntentRouted] = []
+        drafts: list[AssistantDraft] = []
+        utterances: list[AssistantUtterance] = []
+
+        async def intent_handler(event: IntentRouted) -> None:
+            intents.append(event)
+
+        async def draft_handler(event: AssistantDraft) -> None:
+            drafts.append(event)
+
+        async def utterance_handler(event: AssistantUtterance) -> None:
+            utterances.append(event)
+
+        bus.subscribe(IntentRouted, intent_handler)
+        bus.subscribe(AssistantDraft, draft_handler)
+        bus.subscribe(AssistantUtterance, utterance_handler)
+
+        await service.process(_intent("j'ai un devoir a faire"))
+        await service.process(
+            _intent("Consigne: exercice sur les fonctions en maths niveau seconde pour demain")
+        )
+        await service.process(_intent("commence par le brouillon"))
+
+        assert intents == []
+        assert len(drafts) == 1
+        assert drafts[0].kind == "homework"
+        assert drafts[0].title.startswith("Brouillon de maths")
+        assert "Premiere version" in drafts[0].body
+        assert utterances[-1].source == "dialogue"
+        assert "brouillon structure" in utterances[-1].text
+        assert sm.state is State.IDLE

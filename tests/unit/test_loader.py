@@ -59,6 +59,30 @@ class TestLoadDefaultOnly:
 # Override par local.yaml
 # ---------------------------------------------------------------------
 class TestLocalOverride:
+    def test_implicit_local_path_uses_default_yaml_sibling(self, tmp_path: Path) -> None:
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        default = config_dir / "default.yaml"
+        local = config_dir / "local.yaml"
+        default.write_text(
+            """
+safety:
+  mode: dry_run
+""",
+            encoding="utf-8",
+        )
+        local.write_text(
+            """
+safety:
+  mode: autonomous
+""",
+            encoding="utf-8",
+        )
+
+        config = load_config(default_path=default)
+
+        assert config.safety.mode == "autonomous"
+
     def test_local_overrides_top_level(
         self, default_yaml: Path, tmp_path: Path
     ) -> None:
@@ -120,6 +144,35 @@ safety:
 # Validation
 # ---------------------------------------------------------------------
 class TestValidation:
+    def test_custom_default_path_does_not_read_cwd_local_by_default(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        cwd_config = tmp_path / "config"
+        cwd_config.mkdir()
+        (cwd_config / "local.yaml").write_text(
+            """
+safety:
+  mode: assisted
+""",
+            encoding="utf-8",
+        )
+        isolated = tmp_path / "isolated"
+        isolated.mkdir()
+        bad = isolated / "bad.yaml"
+        bad.write_text(
+            """
+safety:
+  mode: INVALID_MODE
+""",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(ValidationError):
+            load_config(default_path=bad)
+
     def test_invalid_enum_raises_validation_error(self, tmp_path: Path) -> None:
         bad = tmp_path / "bad.yaml"
         bad.write_text(
