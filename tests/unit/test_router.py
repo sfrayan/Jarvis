@@ -17,6 +17,7 @@ from brain.router import (
     _ollama_host,
     normalize_transcription,
 )
+from hands.inventory import CapabilityAction, CapabilityTargetType, LocalCapability
 
 pytestmark = pytest.mark.unit
 
@@ -65,6 +66,59 @@ class _SlowOllamaClient:
         _ = (model, messages, format, options, keep_alive)
         await asyncio.sleep(self.delay_s)
         return {"message": {"content": '{"intent":"chat","confidence":0.99,"reason":"trop tard"}'}}
+
+
+class _FakeCapabilityLookup:
+    def __init__(
+        self,
+        capabilities: tuple[LocalCapability, ...] = (),
+        *,
+        fail: bool = False,
+    ) -> None:
+        self._capabilities = capabilities
+        self._fail = fail
+        self.calls: list[
+            tuple[CapabilityTargetType | None, str | None, CapabilityAction | None]
+        ] = []
+
+    def find_capabilities(
+        self,
+        *,
+        target_type: CapabilityTargetType | None = None,
+        target_name: str | None = None,
+        action: CapabilityAction | None = None,
+    ) -> tuple[LocalCapability, ...]:
+        self.calls.append((target_type, target_name, action))
+        if self._fail:
+            raise RuntimeError("capability registry down")
+        return tuple(
+            capability
+            for capability in self._capabilities
+            if (target_type is None or capability.target_type == target_type)
+            and (action is None or capability.action == action)
+            and (
+                target_name is None
+                or target_name.casefold() in capability.target_name.casefold()
+                or capability.target_name.casefold() in target_name.casefold()
+            )
+        )
+
+
+def _local_capability(
+    *,
+    target_name: str,
+    action: CapabilityAction = "open",
+) -> LocalCapability:
+    return LocalCapability(
+        target_type="app",
+        target_name=target_name,
+        action=action,
+        available=True,
+        requires_confirmation=action == "close",
+        requires_admin=False,
+        destructive=action == "close",
+        reason="test",
+    )
 
 
 def _prompt_file(tmp_path: Path) -> Path:
@@ -244,6 +298,99 @@ class TestIntentRouter:
         assert result.domain == domain
         assert result.model == "heuristic"
         assert client.calls == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("text", ["ouvre Obsidian", "lance Obsidian"])
+    async def test_dynamic_capability_routes_unknown_app_as_gui_apps(
+        self,
+        tmp_path: Path,
+        text: str,
+    ) -> None:
+        client = _FakeOllamaClient(
+            '{"intent":"chat","confidence":0.99,"reason":"ne doit pas etre appele"}'
+        )
+        capabilities = _FakeCapabilityLookup((_local_capability(target_name="Obsidian"),))
+        router = IntentRouter(
+            client=client,
+            capabilities=capabilities,
+            prompt_path=_prompt_file(tmp_path),
+        )
+
+        result = await router.route(text)
+
+        assert result.intent == "gui"
+        assert result.domain == "apps"
+        assert result.model == "heuristic"
+        assert client.calls == []
+        assert capabilities.calls == [("app", "obsidian", "open")]
+
+    @pytest.mark.asyncio
+    async def test_dynamic_capability_routes_close_unknown_app_as_gui_apps(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        client = _FakeOllamaClient(
+            '{"intent":"chat","confidence":0.99,"reason":"ne doit pas etre appele"}'
+        )
+        capabilities = _FakeCapabilityLookup(
+            (_local_capability(target_name="Obsidian", action="close"),)
+        )
+        router = IntentRouter(
+            client=client,
+            capabilities=capabilities,
+            prompt_path=_prompt_file(tmp_path),
+        )
+
+        result = await router.route("ferme Obsidian")
+
+        assert result.intent == "gui"
+        assert result.domain == "apps"
+        assert result.model == "heuristic"
+        assert client.calls == []
+        assert capabilities.calls == [("app", "obsidian", "close")]
+
+    @pytest.mark.asyncio
+    async def test_dynamic_capability_does_not_route_target_without_action(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        client = _FakeOllamaClient('{"intent":"chat","confidence":0.91,"reason":"nom seul"}')
+        capabilities = _FakeCapabilityLookup((_local_capability(target_name="Obsidian"),))
+        router = IntentRouter(
+            client=client,
+            capabilities=capabilities,
+            prompt_path=_prompt_file(tmp_path),
+        )
+
+        result = await router.route("Obsidian")
+
+        assert result.intent == "chat"
+        assert result.model == "qwen3:latest"
+        assert len(client.calls) == 1
+        assert capabilities.calls == []
+
+    @pytest.mark.asyncio
+    async def test_dynamic_capability_failure_does_not_crash_router(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        client = _FakeOllamaClient(
+            '{"intent":"chat","confidence":0.99,"reason":"ne doit pas etre appele"}'
+        )
+        capabilities = _FakeCapabilityLookup(fail=True)
+        router = IntentRouter(
+            client=client,
+            capabilities=capabilities,
+            prompt_path=_prompt_file(tmp_path),
+        )
+
+        result = await router.route("ouvre Obsidian")
+
+        assert result.intent == "gui"
+        assert result.domain == "general"
+        assert result.model == "heuristic"
+        assert client.calls == []
+        assert capabilities.calls == [("app", "obsidian", "open")]
 
     @pytest.mark.asyncio
     async def test_heuristic_routes_chat_without_calling_client(self, tmp_path: Path) -> None:

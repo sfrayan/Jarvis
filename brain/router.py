@@ -25,6 +25,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from brain.events import IntentDomain, IntentRouted, IntentType
 from config.schema import JarvisConfig
+from hands.capabilities import CapabilityRegistry
+from hands.inventory import CapabilityAction, CapabilityTargetType, LocalCapability
 from observability.logger import get_logger
 
 log = get_logger(__name__)
@@ -51,6 +53,19 @@ class OllamaChatClient(Protocol):
         """Retourne une réponse compatible avec `ollama.ChatResponse`."""
 
 
+class CapabilityLookupLike(Protocol):
+    """Contrat minimal du registre de capacites locales."""
+
+    def find_capabilities(
+        self,
+        *,
+        target_type: CapabilityTargetType | None = None,
+        target_name: str | None = None,
+        action: CapabilityAction | None = None,
+    ) -> tuple[LocalCapability, ...]:
+        """Recherche les capacites locales disponibles."""
+
+
 class RouterModelResponse(BaseModel):
     """JSON attendu depuis le LLM routeur."""
 
@@ -70,11 +85,13 @@ class IntentRouter:
         *,
         model: str = DEFAULT_ROUTER_MODEL,
         client: OllamaChatClient | None = None,
+        capabilities: CapabilityLookupLike | None = None,
         prompt_path: Path = DEFAULT_PROMPT_PATH,
         timeout_s: float = DEFAULT_ROUTER_TIMEOUT_S,
     ) -> None:
         self._model = model
         self._client = client or ollama.AsyncClient(host=_ollama_host())
+        self._capabilities = capabilities
         self._system_prompt = prompt_path.read_text(encoding="utf-8")
         self._timeout_s = timeout_s
 
@@ -84,9 +101,14 @@ class IntentRouter:
         config: JarvisConfig,
         *,
         client: OllamaChatClient | None = None,
+        capabilities: CapabilityLookupLike | None = None,
     ) -> IntentRouter:
         """Construit le routeur depuis la config racine."""
-        return cls(model=_router_model_from_env_or_default(config), client=client)
+        return cls(
+            model=_router_model_from_env_or_default(config),
+            client=client,
+            capabilities=capabilities or CapabilityRegistry(),
+        )
 
     async def route(self, text: str) -> IntentRouted:
         """Retourne une décision de routage pour `text`."""
@@ -100,7 +122,7 @@ class IntentRouter:
                 reason="Transcription vide",
             )
 
-        heuristic = _heuristic_route(normalized_text)
+        heuristic = _heuristic_route(normalized_text, capabilities=self._capabilities)
         if heuristic is not None:
             return IntentRouted(
                 timestamp=time.time(),
@@ -227,7 +249,11 @@ def normalize_transcription(text: str) -> str:
     return re.sub(r"\s+", " ", normalized).strip()
 
 
-def _heuristic_route(text: str) -> RouterModelResponse | None:
+def _heuristic_route(
+    text: str,
+    *,
+    capabilities: CapabilityLookupLike | None = None,
+) -> RouterModelResponse | None:
     """Route instantané des cas évidents, sans appel LLM.
 
     Le but n'est pas de remplacer qwen3, seulement de garder la boucle vocale
@@ -275,6 +301,10 @@ def _heuristic_route(text: str) -> RouterModelResponse | None:
             confidence=0.0,
             reason="Règle heuristique: commande incomplète",
         )
+
+    dynamic_route = _dynamic_capability_route(lowered, capabilities)
+    if dynamic_route is not None:
+        return dynamic_route
 
     gui_patterns = (
         *action_patterns,
@@ -419,6 +449,87 @@ def _infer_domain(text: str, intent: IntentType) -> IntentDomain:
         return "apps"
 
     return "general"
+
+
+def _dynamic_capability_route(
+    text: str,
+    capabilities: CapabilityLookupLike | None,
+) -> RouterModelResponse | None:
+    if capabilities is None:
+        return None
+    if not _matches_any(text, _DYNAMIC_ACTION_PATTERNS):
+        return None
+
+    target = _extract_dynamic_action_target(text)
+    if target is None:
+        return None
+
+    action: CapabilityAction = (
+        "close" if _matches_any(text, _DYNAMIC_CLOSE_ACTION_PATTERNS) else "open"
+    )
+    try:
+        matches = capabilities.find_capabilities(
+            target_type="app",
+            target_name=target,
+            action=action,
+        )
+    except Exception as exc:
+        log.debug(
+            "intent_router_dynamic_capability_failed",
+            error=str(exc) or type(exc).__name__,
+            error_type=type(exc).__name__,
+        )
+        return None
+
+    if not matches:
+        log.info(
+            "intent_router_dynamic_capability_missed",
+            target=target,
+            action=action,
+        )
+        return None
+
+    log.info(
+        "intent_router_dynamic_capability_matched",
+        target=target,
+        action=action,
+        matches=len(matches),
+        matched_target=matches[0].target_name,
+    )
+    return RouterModelResponse(
+        intent="gui",
+        domain="apps",
+        confidence=0.9,
+        reason="Regle heuristique: application detectee dans l'inventaire local",
+    )
+
+
+_DYNAMIC_ACTION_PATTERNS = (
+    r"\b(ouvre|ouvres|ouvrir|ouvre-moi|m'ouvres)\b",
+    r"\b(lance|lances|lancer|d.marre|demarre|d.marres|demarres)\b",
+    r"\b(ferme|fermes|quitte|quittes|.teins|eteins|.teint|eteint)\b",
+    r"\b(arr.te|arrete|arr.tes|arretes)\b",
+)
+_DYNAMIC_CLOSE_ACTION_PATTERNS = (
+    r"\b(ferme|fermes|quitte|quittes|.teins|eteins|.teint|eteint)\b",
+    r"\b(arr.te|arrete|arr.tes|arretes)\b",
+)
+_DYNAMIC_ACTION_TARGET_PATTERN = re.compile(
+    r"\b(?:ouvre|ouvres|ouvrir|ouvre-moi|m'ouvres|lance|lances|lancer|d.marre|demarre|"
+    r"d.marres|demarres|ferme|fermes|quitte|quittes|.teins|eteins|.teint|eteint|"
+    r"arr.te|arrete|arr.tes|arretes)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _extract_dynamic_action_target(text: str) -> str | None:
+    match = _DYNAMIC_ACTION_TARGET_PATTERN.search(text)
+    if match is None:
+        return None
+    target = text[match.end() :]
+    target = re.sub(r"^(le|la|les|l'|un|une|des|du|de|d')\s+", "", target.strip())
+    target = target.strip(" .,!?:;")
+    return target or None
 
 
 def _matches_any(text: str, patterns: tuple[str, ...]) -> bool:
