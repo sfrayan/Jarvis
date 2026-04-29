@@ -121,6 +121,47 @@ class TestDialogueManager:
         assert session is not None
         assert session.status == "ready"
 
+    def test_ready_homework_session_can_start_google_search(self) -> None:
+        manager = DialogueManager(clock=_Clock())
+        manager.handle(_intent("j'ai un devoir a faire"))
+        manager.handle(
+            _intent(
+                "Consigne: exercice sur les fonctions en maths niveau seconde pour demain",
+            )
+        )
+
+        turn = manager.handle(_intent("commence par une recherche Google"))
+
+        assert turn.decision == "pass_through"
+        assert turn.intent is not None
+        assert turn.intent.intent == "gui"
+        assert turn.intent.domain == "web_search"
+        assert turn.intent.normalized_text == (
+            "cherche sur Google exercice sur les fonctions en maths niveau seconde pour demain"
+        )
+        session = manager.active_session
+        assert session is not None
+        assert session.status == "ready"
+
+    def test_ready_homework_session_can_start_draft_without_hands(self) -> None:
+        manager = DialogueManager(clock=_Clock())
+        manager.handle(_intent("j'ai un devoir a faire"))
+        manager.handle(
+            _intent(
+                "Consigne: exercice sur les fonctions en maths niveau seconde pour demain",
+            )
+        )
+
+        turn = manager.handle(_intent("commence par le brouillon"))
+
+        assert turn.decision == "plan"
+        assert turn.intent is None
+        assert turn.plan is not None
+        assert turn.plan.requires_confirmation is False
+        assert turn.utterance is not None
+        assert "brouillon structure" in turn.utterance.text
+        assert "fonctions" in turn.utterance.text
+
     def test_routine_mode_code_produces_plan_without_hands_intent(self) -> None:
         manager = DialogueManager(clock=_Clock())
 

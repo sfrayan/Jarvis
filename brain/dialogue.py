@@ -89,6 +89,10 @@ class DialogueManager:
         active = self.active_session
         if active is not None and active.status == "waiting_for_user":
             return self._continue_session(active, routed, now=now)
+        if active is not None and active.status == "ready":
+            ready_turn = self._continue_ready_session(active, routed, text, now=now)
+            if ready_turn is not None:
+                return ready_turn
 
         template = _detect_incomplete_request(routed, text)
         if template is not None:
@@ -158,6 +162,32 @@ class DialogueManager:
         if session.kind == "sensitive_system":
             return self._continue_sensitive_system(session, routed, text, now=now)
         return self._unknown_response(routed, now=now)
+
+    def _continue_ready_session(
+        self,
+        session: TaskSession,
+        routed: IntentRouted,
+        text: str,
+        *,
+        now: float,
+    ) -> DialogueTurn | None:
+        if session.kind == "homework":
+            return self._continue_ready_homework(session, routed, text, now=now)
+        return None
+
+    def _continue_ready_homework(
+        self,
+        session: TaskSession,
+        routed: IntentRouted,
+        text: str,
+        *,
+        now: float,
+    ) -> DialogueTurn | None:
+        if _looks_like_homework_research_choice(text):
+            return self._homework_research_turn(session, routed, text, now=now)
+        if _looks_like_homework_draft_choice(text):
+            return self._homework_draft_turn(session, routed, now=now)
+        return None
 
     def _continue_homework(
         self,
@@ -534,6 +564,81 @@ class DialogueManager:
             reason=plan.reason,
         )
 
+    def _homework_research_turn(
+        self,
+        session: TaskSession,
+        routed: IntentRouted,
+        text: str,
+        *,
+        now: float,
+    ) -> DialogueTurn:
+        target = "youtube" if _prefers_youtube(text) else "google"
+        query = _homework_search_query(session)
+        normalized_text = (
+            f"ouvre une recherche YouTube sur {query}"
+            if target == "youtube"
+            else f"cherche sur Google {query}"
+        )
+        updated = session.with_update(
+            now=now,
+            last_user_reply=routed.normalized_text,
+        )
+        self._session = updated
+        return DialogueTurn(
+            decision="pass_through",
+            intent=IntentRouted(
+                timestamp=now,
+                original_text=routed.original_text,
+                normalized_text=normalized_text,
+                intent="gui",
+                domain="web_search",
+                confidence=0.93,
+                reason="Session devoir: recherche demandee apres le plan",
+                model="dialogue",
+            ),
+            session_event=_session_event(
+                updated,
+                reason="Recherche devoir preparee",
+                now=now,
+            ),
+            reason="Recherche devoir relayee vers BrowserActionPlanner",
+        )
+
+    def _homework_draft_turn(
+        self,
+        session: TaskSession,
+        routed: IntentRouted,
+        *,
+        now: float,
+    ) -> DialogueTurn:
+        steps = _homework_draft_steps(session)
+        updated = session.with_update(
+            now=now,
+            plan_steps=steps,
+            last_user_reply=routed.normalized_text,
+        )
+        self._session = updated
+        plan = AssistantPlan(
+            timestamp=now,
+            session_id=updated.session_id,
+            kind=updated.kind,
+            summary="Brouillon guide du devoir",
+            steps=steps,
+            requires_confirmation=False,
+            reason="Brouillon devoir demande apres le plan",
+        )
+        return DialogueTurn(
+            decision="plan",
+            utterance=_utterance(
+                _homework_draft_message(updated, steps),
+                reason=plan.reason,
+                now=now,
+            ),
+            plan=plan,
+            session_event=_session_event(updated, reason=plan.reason, now=now),
+            reason=plan.reason,
+        )
+
 
 def _plan_message(session: TaskSession, steps: tuple[str, ...]) -> str:
     numbered = " ".join(f"{index}. {step}" for index, step in enumerate(steps, start=1))
@@ -563,6 +668,94 @@ def _routine_suggestions_text(routine: RoutinePlan) -> str:
         return ""
     labels = ", ".join(suggestion.label for suggestion in routine.suggestions)
     return f" Options possibles ensuite: {labels}."
+
+
+def _looks_like_homework_research_choice(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(recherche|cherche|google|youtube|video|documentation|source|sources)\b",
+            text,
+        )
+        and re.search(
+            r"\b(commence|lance|ouvre|fais|fait|cherche|recherche|google|youtube)\b",
+            text,
+        )
+    )
+
+
+def _looks_like_homework_draft_choice(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(brouillon|redige|rediger|redaction|structure|plan detaille|introduction)\b",
+            text,
+        )
+        or re.search(r"\bcommence\b", text)
+    )
+
+
+def _prefers_youtube(text: str) -> bool:
+    return bool(re.search(r"\b(youtube|video|videos)\b", text))
+
+
+def _homework_search_query(session: TaskSession) -> str:
+    instruction = session.slot_value("instruction")
+    subject = session.slot_value("subject")
+    level = session.slot_value("level")
+
+    parts: list[str] = []
+    if instruction is not None:
+        parts.append(_clean_homework_query_part(instruction))
+    else:
+        parts.append(_clean_homework_query_part(session.original_request))
+
+    _append_query_context(parts, subject)
+    _append_query_context(parts, level)
+
+    query = re.sub(r"\s+", " ", " ".join(part for part in parts if part)).strip(" .")
+    return query[:160].rstrip(" .") or "devoir scolaire"
+
+
+def _append_query_context(parts: list[str], value: str | None) -> None:
+    if value is None:
+        return
+    folded = _fold(" ".join(parts))
+    if _fold(value) not in folded:
+        parts.append(value)
+
+
+def _clean_homework_query_part(text: str) -> str:
+    cleaned = re.sub(r"\bconsigne\s*:?\s*", "", text, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\b(jarvis|aide-moi|aide moi|j'ai un devoir a faire)\b",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip(" .,!?:;")
+
+
+def _homework_draft_steps(session: TaskSession) -> tuple[str, ...]:
+    instruction = session.slot_value("instruction") or "la consigne exacte"
+    subject = session.slot_value("subject") or "la matiere"
+    level = session.slot_value("level")
+    deadline = session.slot_value("deadline")
+    level_text = f"niveau {level}" if level is not None else "au bon niveau"
+    deadline_text = f"avant {deadline}" if deadline is not None else "avant la date limite"
+    return (
+        f"Reformuler la consigne en une phrase claire: {instruction}.",
+        f"Lister les idees ou notions utiles en {subject}, avec un langage {level_text}.",
+        f"Rediger une premiere reponse courte, puis relire {deadline_text}.",
+    )
+
+
+def _homework_draft_message(session: TaskSession, steps: tuple[str, ...]) -> str:
+    subject = session.slot_value("subject")
+    subject_text = f" pour {subject}" if subject is not None else ""
+    numbered = " ".join(f"{index}. {step}" for index, step in enumerate(steps, start=1))
+    return (
+        f"Je commence par un brouillon structure{subject_text}: {numbered} "
+        "Ensuite, donne-moi tes idees ou demande-moi une recherche ciblee."
+    )
 
 
 def _detect_incomplete_request(

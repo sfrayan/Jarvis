@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 
 from brain.dialogue_service import DialogueService
-from brain.events import ClarificationQuestion, IntentDomain, IntentRouted, IntentType
+from brain.events import (
+    AssistantPlan,
+    ClarificationQuestion,
+    IntentDomain,
+    IntentRouted,
+    IntentType,
+)
 from core.event_bus import EventBus
 from core.state_machine import State, StateMachine
 from voice.feedback import AssistantUtterance
@@ -115,3 +121,37 @@ class TestDialogueService:
         assert utterances[0].source == "dialogue"
         assert "Mode code" in utterances[0].text
         assert sm.state is State.IDLE
+
+    @pytest.mark.asyncio
+    async def test_homework_demo_relay_search_after_clarification_and_plan(self) -> None:
+        bus = EventBus()
+        sm = StateMachine(bus, initial=State.ROUTING)
+        service = DialogueService(event_bus=bus, state_machine=sm)
+        intents: list[IntentRouted] = []
+        questions: list[ClarificationQuestion] = []
+        plans: list[AssistantPlan] = []
+
+        async def intent_handler(event: IntentRouted) -> None:
+            intents.append(event)
+
+        async def question_handler(event: ClarificationQuestion) -> None:
+            questions.append(event)
+
+        async def plan_handler(event: AssistantPlan) -> None:
+            plans.append(event)
+
+        bus.subscribe(IntentRouted, intent_handler)
+        bus.subscribe(ClarificationQuestion, question_handler)
+        bus.subscribe(AssistantPlan, plan_handler)
+
+        await service.process(_intent("j'ai un devoir a faire"))
+        await service.process(
+            _intent("Consigne: exercice sur les fonctions en maths niveau seconde pour demain")
+        )
+        await service.process(_intent("commence par une recherche Google"))
+
+        assert questions[0].kind == "homework"
+        assert plans[0].kind == "homework"
+        assert len(intents) == 1
+        assert intents[0].domain == "web_search"
+        assert intents[0].normalized_text.startswith("cherche sur Google exercice")
