@@ -123,13 +123,21 @@ class VisionConfig(BaseModel):
 # -----------------------------------------------------------------------------
 # TTS (synthèse vocale via Piper)
 # -----------------------------------------------------------------------------
+TTSBackend = Literal["log", "piper"]
+
+
 class TTSConfig(BaseModel):
     """Configuration du TTS (client Wyoming Piper)."""
 
     model_config = ConfigDict(extra="forbid")
 
+    backend: TTSBackend = Field(default="log")
     voice: str = Field(default="fr_FR-siwis-medium")
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
+    host: str = Field(default="127.0.0.1", min_length=1)
+    port: int = Field(default=10200, ge=1, le=65535)
+    timeout_s: float = Field(default=2.0, gt=0.0, le=30.0)
+    fallback_to_log: bool = Field(default=True)
 
 
 # -----------------------------------------------------------------------------

@@ -55,8 +55,13 @@ vision:
 
 # --- TTS (synthèse vocale) ----------------------------------------------------
 tts:
+  backend: log                       # log | piper ; log reste sûr si Piper n'est pas lancé
   voice: fr_FR-siwis-medium         # Voix Piper (cf. piper voices)
   speed: 1.0                        # Facteur de vitesse (1.0 = nominal)
+  host: "127.0.0.1"                 # Piper Wyoming exposé par docker-compose
+  port: 10200
+  timeout_s: 2.0
+  fallback_to_log: true             # Si Piper échoue, garder un retour log
 
 # --- Cloud (fallback optionnel) -----------------------------------------------
 cloud:

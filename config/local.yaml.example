@@ -21,6 +21,10 @@
 # vision:
 #   backend_local: qwen2.5vl:3b
 
+# Exemple : activer Piper si le conteneur `piper-tts` tourne.
+# tts:
+#   backend: piper
+
 # Exemple : activer Prometheus pour le monitoring.
 # observability:
 #   metrics_enabled: true

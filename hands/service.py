@@ -19,6 +19,11 @@ from hands.executor import DryRunHandsExecutor, HandsExecutionReport
 from hands.local_actions import LocalActionPlanner
 from hands.screenshot import ScreenshotCapture, ScreenshotFrame
 from observability.logger import get_logger
+from voice.feedback import (
+    AssistantUtterance,
+    feedback_for_unhandled_local_intent,
+    feedback_from_hands_report,
+)
 
 log = get_logger(__name__)
 
@@ -115,6 +120,10 @@ class HandsPipelineService:
         local_report = self._local_actions.plan(event)
         if local_report is not None:
             await self._bus.publish(local_report)
+            await self._publish_feedback(
+                feedback_from_hands_report(local_report),
+                reason=f"local_action_{local_report.status}",
+            )
             log.info(
                 "hands_local_action_reported",
                 domain=event.domain,
@@ -122,6 +131,19 @@ class HandsPipelineService:
                 actions=len(local_report.actions),
                 executed=local_report.executed,
                 requires_human=local_report.requires_human,
+            )
+            return
+
+        feedback = feedback_for_unhandled_local_intent(event)
+        if feedback is not None:
+            await self._publish_feedback(
+                feedback,
+                reason="local_action_unhandled",
+            )
+            log.info(
+                "hands_local_action_unhandled",
+                domain=event.domain,
+                text=event.normalized_text,
             )
             return
 
@@ -229,6 +251,24 @@ class HandsPipelineService:
         ):
             return
         await self._transition_if_allowed(State.IDLE, reason="dry_run_speaking_skipped")
+
+    async def _publish_feedback(
+        self,
+        utterance: AssistantUtterance,
+        *,
+        reason: str,
+    ) -> None:
+        await self._transition_if_allowed(State.CHAT_ANSWER, reason=reason)
+        await self._transition_if_allowed(State.SPEAKING, reason=reason)
+        await self._bus.publish(utterance)
+        log.info(
+            "assistant_feedback_published",
+            source=utterance.source,
+            priority=utterance.priority,
+            text=utterance.text,
+            reason=utterance.reason,
+        )
+        await self._transition_if_allowed(State.IDLE, reason="assistant_feedback_spoken")
 
     async def _transition_if_allowed(self, target: State, *, reason: str) -> bool:
         current = self._sm.state

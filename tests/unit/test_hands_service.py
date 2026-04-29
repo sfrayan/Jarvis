@@ -11,6 +11,7 @@ from core.state_machine import State, StateMachine, StateTransition
 from hands.executor import HandsExecutionReport, HandsExecutionStatus
 from hands.screenshot import ScreenshotFrame
 from hands.service import HandsPipelineService
+from voice.feedback import AssistantUtterance
 
 pytestmark = pytest.mark.unit
 
@@ -187,11 +188,16 @@ class TestHandsPipelineService:
             local_actions=local_actions,
         )
         reports: list[HandsExecutionReport] = []
+        utterances: list[AssistantUtterance] = []
 
         async def report_handler(event: HandsExecutionReport) -> None:
             reports.append(event)
 
+        async def utterance_handler(event: AssistantUtterance) -> None:
+            utterances.append(event)
+
         bus.subscribe(HandsExecutionReport, report_handler)
+        bus.subscribe(AssistantUtterance, utterance_handler)
         service.start()
 
         await bus.publish(_intent(domain=domain, text="ouvre Chrome"))
@@ -199,7 +205,38 @@ class TestHandsPipelineService:
         assert local_actions.calls[0].domain == domain
         assert screenshot.calls == []
         assert reports[0].status == "dry_run"
-        assert sm.state is State.ROUTING
+        assert utterances[0].text == "En mode dry run, je n'exécute rien pour l'instant."
+        assert sm.state is State.IDLE
+
+    @pytest.mark.asyncio
+    async def test_local_domain_without_action_publishes_feedback(self) -> None:
+        bus = EventBus()
+        sm = StateMachine(bus, initial=State.ROUTING)
+        screenshot = _FakeScreenshot()
+        local_actions = _FakeLocalActions()
+        service = HandsPipelineService(
+            event_bus=bus,
+            state_machine=sm,
+            screenshot=screenshot,
+            vision=_FakeVision(),
+            executor=_FakeExecutor(),
+            local_actions=local_actions,
+        )
+        utterances: list[AssistantUtterance] = []
+
+        async def utterance_handler(event: AssistantUtterance) -> None:
+            utterances.append(event)
+
+        bus.subscribe(AssistantUtterance, utterance_handler)
+        service.start()
+
+        await bus.publish(_intent(domain="apps", text="ouvre Obsidian"))
+
+        assert local_actions.calls[0].domain == "apps"
+        assert screenshot.calls == []
+        assert utterances[0].text == "Je ne trouve pas cette application dans ton inventaire local."
+        assert utterances[0].priority == "warning"
+        assert sm.state is State.IDLE
 
     @pytest.mark.asyncio
     async def test_ignores_non_local_non_vision_gui_domains(self) -> None:

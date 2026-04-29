@@ -36,6 +36,7 @@ from ears.service import EarsService
 from hands.service import HandsPipelineService
 from observability.logger import configure_logging, get_logger
 from safety.kill_switch import KillSwitch
+from voice.service import VoiceFeedbackService
 
 
 def _bootstrap() -> tuple[JarvisConfig, KillSwitch]:
@@ -91,7 +92,12 @@ async def _run(config: JarvisConfig, kill_switch: KillSwitch) -> None:
         event_bus=bus,
         state_machine=sm,
     )
+    voice = VoiceFeedbackService.create_default(
+        event_bus=bus,
+        tts_config=config.tts,
+    )
 
+    voice.start()
     hands.start()
     brain.start()
 
@@ -116,6 +122,7 @@ async def _run(config: JarvisConfig, kill_switch: KillSwitch) -> None:
     finally:
         brain.stop()
         hands.stop()
+        voice.stop()
         await brain.wait_for_pending()
 
 
