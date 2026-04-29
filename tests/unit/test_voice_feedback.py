@@ -53,7 +53,7 @@ def _intent(
 def test_feedback_completed_executed_app_mentions_real_target() -> None:
     utterance = feedback_from_hands_report(_report(action=_launch_app()))
 
-    assert utterance.text == "Je l'ai trouvée dans ton PC. J'ai ouvert Antigravity."
+    assert utterance.text == "C'est fait, j'ai ouvert Antigravity."
     assert utterance.priority == "info"
     assert utterance.source == "hands"
 
@@ -68,10 +68,7 @@ def test_feedback_dry_run_explains_no_execution() -> None:
         )
     )
 
-    assert utterance.text == (
-        "Je l'ai trouvée dans ton PC. En mode dry run, je n'exécute pas encore: "
-        "ouvrir Antigravity."
-    )
+    assert utterance.text == "Mode dry run: je n'exécute pas encore ouvrir Antigravity."
     assert utterance.reason == "Mode dry_run"
 
 
@@ -85,7 +82,7 @@ def test_feedback_completed_browser_mentions_page() -> None:
         )
     )
 
-    assert utterance.text == "J'ai ouvert la page https://www.youtube.com."
+    assert utterance.text == "C'est ouvert: YouTube."
 
 
 def test_feedback_browser_prefers_navigation_over_setup_action() -> None:
@@ -103,7 +100,20 @@ def test_feedback_browser_prefers_navigation_over_setup_action() -> None:
 
     utterance = feedback_from_hands_report(report)
 
-    assert utterance.text.endswith("ouvrir la page https://www.youtube.com.")
+    assert utterance.text == "Mode dry run: je n'exécute pas encore ouvrir YouTube."
+
+
+def test_feedback_browser_search_avoids_speaking_full_url() -> None:
+    utterance = feedback_from_hands_report(
+        _report(
+            action=PlannedGuiAction(
+                type="browser_navigate",
+                text="https://www.youtube.com/results?search_query=chats+calmes",
+            )
+        )
+    )
+
+    assert utterance.text == "C'est ouvert: la recherche YouTube."
 
 
 def test_feedback_blocked_requests_confirmation() -> None:
@@ -118,7 +128,8 @@ def test_feedback_blocked_requests_confirmation() -> None:
     )
 
     assert utterance.text == (
-        "J'ai besoin de ta confirmation avant de continuer: confirmation requise."
+        "Action sensible: j'ai besoin de ta confirmation avant de continuer. "
+        "confirmation requise."
     )
     assert utterance.priority == "warning"
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -86,39 +87,39 @@ def feedback_for_unhandled_local_intent(event: IntentRouted) -> AssistantUtteran
 def _completed_text(action: PlannedGuiAction | None, *, executed: bool) -> str:
     if action is None:
         return "C'est déjà terminé."
-    if _is_browser_action(action):
-        return _executed_action_sentence(action) if executed else _planned_action_sentence(action)
     if executed:
-        return f"Je l'ai trouvée dans ton PC. {_executed_action_sentence(action)}"
-    return f"Action terminée. {_planned_action_sentence(action)}"
+        return _executed_action_sentence(action)
+    return _planned_action_sentence(action)
 
 
 def _dry_run_text(action: PlannedGuiAction | None) -> str:
     if action is None:
         return "En mode dry run, je n'exécute rien pour l'instant."
-    return f"Je l'ai trouvée dans ton PC. En mode dry run, je n'exécute pas encore: {_action_label(action)}."
+    return f"Mode dry run: je n'exécute pas encore {_action_label(action)}."
 
 
 def _observe_text(action: PlannedGuiAction | None) -> str:
     if action is None:
         return "Je reste en observation, aucune action n'est exécutée."
-    return f"Je vois l'action à faire, mais le mode observe bloque l'exécution: {_action_label(action)}."
+    return f"Mode observe: je note l'action sans l'exécuter: {_action_label(action)}."
 
 
 def _blocked_text(report: HandsExecutionReport) -> str:
     if report.requires_human:
-        return f"J'ai besoin de ta confirmation avant de continuer: {report.reason}."
+        return (
+            f"Action sensible: j'ai besoin de ta confirmation avant de continuer. {report.reason}."
+        )
     return f"Action bloquée: {report.reason}."
 
 
 def _executed_action_sentence(action: PlannedGuiAction) -> str:
     target = _target_or_default(action)
     if action.type in {"launch_app", "system_tool"}:
-        return f"J'ai ouvert {target}."
+        return f"C'est fait, j'ai ouvert {target}."
     if action.type == "open_folder":
-        return f"J'ai ouvert le dossier {target}."
+        return f"C'est fait, j'ai ouvert le dossier {target}."
     if action.type == "close_app":
-        return f"J'ai fermé {target}."
+        return f"C'est fait, j'ai fermé {target}."
     if action.type == "system_volume":
         return _volume_sentence(action.text)
     if action.type == "media_control":
@@ -128,7 +129,7 @@ def _executed_action_sentence(action: PlannedGuiAction) -> str:
     if action.type == "browser_new_tab":
         return "J'ai ouvert un nouvel onglet."
     if action.type == "browser_navigate":
-        return f"J'ai ouvert la page {target}."
+        return f"C'est ouvert: {_browser_target_label(target)}."
     return f"J'ai exécuté l'action {action.type}."
 
 
@@ -149,7 +150,7 @@ def _planned_action_sentence(action: PlannedGuiAction) -> str:
     if action.type == "browser_new_tab":
         return "Je peux ouvrir un nouvel onglet."
     if action.type == "browser_navigate":
-        return f"Je peux ouvrir la page {target}."
+        return f"Je peux ouvrir {_browser_target_label(target)}."
     return f"Je peux exécuter l'action {action.type}."
 
 
@@ -168,12 +169,31 @@ def _action_label(action: PlannedGuiAction) -> str:
     if action.type == "browser_new_tab":
         return "ouvrir un nouvel onglet"
     if action.type == "browser_navigate":
-        return f"ouvrir la page {target}"
+        return f"ouvrir {_browser_target_label(target)}"
     return f"{action.type} {target}"
 
 
 def _target_or_default(action: PlannedGuiAction) -> str:
     return action.text or action.type
+
+
+def _browser_target_label(target: str) -> str:
+    parsed = urlparse(target)
+    host = parsed.netloc.casefold().removeprefix("www.")
+    if not host:
+        return target
+
+    if host in {"youtube.com", "m.youtube.com"}:
+        if parsed.path.startswith("/results"):
+            return "la recherche YouTube"
+        return "YouTube"
+
+    if host == "google.com" or host.endswith(".google.com"):
+        if parsed.path.startswith("/search"):
+            return "la recherche Google"
+        return "Google"
+
+    return host
 
 
 def _primary_feedback_action(
@@ -185,10 +205,6 @@ def _primary_feedback_action(
         if action.type == "browser_navigate":
             return action
     return actions[0]
-
-
-def _is_browser_action(action: PlannedGuiAction) -> bool:
-    return action.type.startswith("browser_")
 
 
 def _volume_sentence(target: str | None) -> str:

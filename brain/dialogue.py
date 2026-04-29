@@ -129,6 +129,7 @@ class DialogueManager:
             question=template.question,
             reason=template.reason,
             now=now,
+            priority="warning" if template.kind == "sensitive_system" else "info",
         )
 
     def _continue_session(
@@ -468,9 +469,7 @@ class DialogueManager:
         reason: str,
         now: float,
     ) -> DialogueTurn:
-        message = "Plan propose : " + " ".join(
-            f"{index}. {step}" for index, step in enumerate(steps, start=1)
-        )
+        message = _plan_message(session, steps)
         plan = AssistantPlan(
             timestamp=now,
             session_id=session.session_id,
@@ -487,6 +486,21 @@ class DialogueManager:
             session_event=_session_event(session, reason=reason, now=now),
             reason=reason,
         )
+
+
+def _plan_message(session: TaskSession, steps: tuple[str, ...]) -> str:
+    numbered = " ".join(f"{index}. {step}" for index, step in enumerate(steps, start=1))
+    return f"D'accord. Je te propose {len(steps)} etapes: {numbered} {_next_step_question(session)}"
+
+
+def _next_step_question(session: TaskSession) -> str:
+    if session.kind == "homework":
+        return "Tu veux que je commence par le brouillon ou par une recherche ?"
+    if session.kind == "coding_project":
+        return "Donne-moi les fonctionnalites principales, et je structure le projet."
+    if session.kind == "work_setup":
+        return "Dis-moi les outils a ouvrir, et je les preparerai prudemment."
+    return "Dis-moi par quoi tu veux commencer."
 
 
 def _detect_incomplete_request(

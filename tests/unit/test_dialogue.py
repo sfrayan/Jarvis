@@ -114,6 +114,9 @@ class TestDialogueManager:
         assert turn.plan is not None
         assert turn.plan.kind == "homework"
         assert len(turn.plan.steps) == 3
+        assert turn.utterance is not None
+        assert turn.utterance.text.startswith("D'accord. Je te propose 3 etapes:")
+        assert "commence par le brouillon" in turn.utterance.text
         session = manager.active_session
         assert session is not None
         assert session.status == "ready"

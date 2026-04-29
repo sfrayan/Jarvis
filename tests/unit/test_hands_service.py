@@ -266,10 +266,7 @@ class TestHandsPipelineService:
         assert screenshot.calls == []
         assert vision.requests == []
         assert reports[0].actions[0].type == "browser_navigate"
-        assert utterances[0].text == (
-            "Je l'ai trouvée dans ton PC. En mode dry run, je n'exécute pas encore: "
-            "ouvrir la page https://www.youtube.com."
-        )
+        assert utterances[0].text == "Mode dry run: je n'exécute pas encore ouvrir YouTube."
         assert sm.state is State.IDLE
 
     @pytest.mark.asyncio
