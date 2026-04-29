@@ -28,6 +28,7 @@ from contextlib import suppress
 from brain.draft_storage import DraftStorageService
 from brain.router import IntentRouter
 from brain.service import BrainService
+from brain.session_store import SessionStore
 from config.loader import load_config
 from config.schema import JarvisConfig
 from core.event_bus import EventBus
@@ -83,10 +84,12 @@ async def _run(config: JarvisConfig, kill_switch: KillSwitch) -> None:
         event_bus=bus,
         state_machine=sm,
     )
+    session_store = SessionStore(config.session_memory)
     brain = BrainService.create_default(
         event_bus=bus,
         state_machine=sm,
         router=IntentRouter.from_config(config),
+        session_store=session_store,
     )
     hands = HandsPipelineService.create_default(
         config=config,

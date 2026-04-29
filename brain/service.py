@@ -15,6 +15,7 @@ from typing import Protocol, cast
 from brain.dialogue_service import DialogueService
 from brain.events import IntentRouted
 from brain.router import IntentRouter
+from brain.session_store import SessionStore
 from core.event_bus import EventBus, SubscriptionHandle
 from core.state_machine import State, StateMachine
 from ears.events import Transcription
@@ -72,6 +73,7 @@ class BrainService:
         state_machine: StateMachine,
         router: IntentRouter | None = None,
         dialogue: DialogueProcessorLike | None = None,
+        session_store: SessionStore | None = None,
     ) -> BrainService:
         """Factory utilisée par `main.py`."""
         return cls(
@@ -82,6 +84,7 @@ class BrainService:
             or DialogueService(
                 event_bus=event_bus,
                 state_machine=state_machine,
+                session_store=session_store,
             ),
         )
 

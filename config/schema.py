@@ -141,6 +141,31 @@ class TTSConfig(BaseModel):
 
 
 # -----------------------------------------------------------------------------
+# Mémoire de session (persistance inter-lancements)
+# -----------------------------------------------------------------------------
+class SessionMemoryConfig(BaseModel):
+    """Persistance légère de la session de dialogue entre deux lancements."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(
+        default=False,
+        description="Active la sauvegarde de la session courante sur disque",
+    )
+    directory: str = Field(
+        default="data/sessions",
+        min_length=1,
+        description="Dossier relatif autorisé pour le fichier de session JSON",
+    )
+    expiry_hours: float = Field(
+        default=4.0,
+        gt=0.0,
+        le=168.0,
+        description="Durée de vie max d'une session sauvegardée (heures)",
+    )
+
+
+# -----------------------------------------------------------------------------
 # Brouillons locaux
 # -----------------------------------------------------------------------------
 class DraftStorageConfig(BaseModel):
@@ -206,6 +231,7 @@ class JarvisConfig(BaseModel):
     stt: STTConfig = Field(default_factory=STTConfig)
     vision: VisionConfig = Field(default_factory=VisionConfig)
     tts: TTSConfig = Field(default_factory=TTSConfig)
+    session_memory: SessionMemoryConfig = Field(default_factory=SessionMemoryConfig)
     drafts: DraftStorageConfig = Field(default_factory=DraftStorageConfig)
     cloud: CloudConfig = Field(default_factory=CloudConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)

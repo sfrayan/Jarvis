@@ -38,10 +38,13 @@ class DialogueService:
         event_bus: EventBus,
         state_machine: StateMachine,
         manager: DialogueManagerLike | None = None,
+        session_store: "SessionStoreLike | None" = None,
     ) -> None:
+        from brain.dialogue import SessionStoreLike as _SSL  # noqa: F401 — type hint
+
         self._bus = event_bus
         self._sm = state_machine
-        self._manager = manager or DialogueManager()
+        self._manager = manager or DialogueManager(session_store=session_store)
 
     async def process(self, routed: IntentRouted) -> None:
         """Traite une intention routee et publie les sorties adaptees."""

@@ -3,6 +3,9 @@
 Le `DialogueManager` reste une brique pure : pas d'EventBus, pas de GUI, pas de
 TTS direct. Il decide seulement si une intention routee doit etre relayee vers
 Hands, clarifiee, transformee en plan, ou annulee.
+
+En Iteration 5O, le manager accepte un `SessionStore` optionnel pour persister
+la session de dialogue entre deux lancements de Jarvis.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ import time
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -66,12 +69,31 @@ class _SessionTemplate:
     reason: str
 
 
-class DialogueManager:
-    """Gere une session de tache temporaire en RAM."""
+class SessionStoreLike(Protocol):
+    """Contrat minimal du store de session."""
 
-    def __init__(self, *, clock: Callable[[], float] | None = None) -> None:
+    def save(self, session: TaskSession) -> bool:
+        """Sauvegarde la session sur disque."""
+
+    def load(self) -> TaskSession | None:
+        """Charge la session depuis le disque."""
+
+    def clear(self) -> None:
+        """Supprime le fichier de session."""
+
+
+class DialogueManager:
+    """Gere une session de tache, optionnellement persistee sur disque."""
+
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], float] | None = None,
+        session_store: SessionStoreLike | None = None,
+    ) -> None:
         self._clock = clock or time.time
-        self._session: TaskSession | None = None
+        self._store = session_store
+        self._session: TaskSession | None = self._restore_session()
 
     @property
     def active_session(self) -> TaskSession | None:
@@ -79,6 +101,20 @@ class DialogueManager:
         if self._session is None or self._session.status in {"cancelled", "completed"}:
             return None
         return self._session
+
+    def _set_session(self, session: TaskSession | None) -> None:
+        """Setter centralise : met a jour la session et la persiste si le store est actif."""
+        self._session = session
+        if self._store is not None and session is not None:
+            self._store.save(session)
+        elif self._store is not None and session is None:
+            self._store.clear()
+
+    def _restore_session(self) -> TaskSession | None:
+        """Restaure la session depuis le store au demarrage."""
+        if self._store is None:
+            return None
+        return self._store.load()
 
     def handle(self, routed: IntentRouted) -> DialogueTurn:
         """Retourne la decision dialogue pour une intention routee."""
@@ -136,7 +172,7 @@ class DialogueManager:
             updated_at=now,
             last_question=template.question,
         )
-        self._session = session
+        self._set_session(session)
         return self._clarification_turn(
             session,
             question=template.question,
@@ -210,7 +246,7 @@ class DialogueManager:
                 last_question=question,
                 last_user_reply=routed.normalized_text,
             )
-            self._session = updated
+            self._set_session(updated)
             return self._clarification_turn(
                 updated,
                 question=question,
@@ -231,7 +267,7 @@ class DialogueManager:
             plan_steps=steps,
             last_user_reply=routed.normalized_text,
         )
-        self._session = updated
+        self._set_session(updated)
         return self._plan_turn(
             updated,
             steps=steps,
@@ -258,7 +294,7 @@ class DialogueManager:
                 last_question=question,
                 last_user_reply=routed.normalized_text,
             )
-            self._session = updated
+            self._set_session(updated)
             return self._clarification_turn(
                 updated,
                 question=question,
@@ -279,7 +315,7 @@ class DialogueManager:
             plan_steps=steps,
             last_user_reply=routed.normalized_text,
         )
-        self._session = updated
+        self._set_session(updated)
         return self._plan_turn(
             updated,
             steps=steps,
@@ -306,7 +342,7 @@ class DialogueManager:
                 last_question=question,
                 last_user_reply=routed.normalized_text,
             )
-            self._session = updated
+            self._set_session(updated)
             return self._clarification_turn(
                 updated,
                 question=question,
@@ -327,7 +363,7 @@ class DialogueManager:
             plan_steps=steps,
             last_user_reply=routed.normalized_text,
         )
-        self._session = updated
+        self._set_session(updated)
         return self._plan_turn(
             updated,
             steps=steps,
@@ -354,7 +390,7 @@ class DialogueManager:
                 last_question=question,
                 last_user_reply=routed.normalized_text,
             )
-            self._session = updated
+            self._set_session(updated)
             return self._clarification_turn(
                 updated,
                 question=question,
@@ -370,7 +406,7 @@ class DialogueManager:
             missing_slots=(),
             last_user_reply=routed.normalized_text,
         )
-        self._session = updated
+        self._set_session(updated)
         return DialogueTurn(
             decision="pass_through",
             intent=IntentRouted(
@@ -414,7 +450,7 @@ class DialogueManager:
             last_question=question,
             last_user_reply=routed.normalized_text,
         )
-        self._session = updated
+        self._set_session(updated)
         return self._clarification_turn(
             updated,
             question=question,
@@ -464,7 +500,7 @@ class DialogueManager:
             )
 
         updated = session.with_update(now=now, status="cancelled", missing_slots=())
-        self._session = updated
+        self._set_session(updated)
         return DialogueTurn(
             decision="cancel",
             utterance=_utterance(
@@ -544,7 +580,7 @@ class DialogueManager:
             created_at=now,
             updated_at=now,
         )
-        self._session = session
+        self._set_session(session)
         plan = AssistantPlan(
             timestamp=now,
             session_id=session.session_id,
@@ -585,7 +621,7 @@ class DialogueManager:
             now=now,
             last_user_reply=routed.normalized_text,
         )
-        self._session = updated
+        self._set_session(updated)
         return DialogueTurn(
             decision="pass_through",
             intent=IntentRouted(
@@ -619,7 +655,7 @@ class DialogueManager:
             plan_steps=draft.sections,
             last_user_reply=routed.normalized_text,
         )
-        self._session = updated
+        self._set_session(updated)
         draft = draft.model_copy(update={"session_id": updated.session_id})
         return DialogueTurn(
             decision="draft",

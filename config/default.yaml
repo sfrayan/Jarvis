@@ -63,6 +63,12 @@ tts:
   timeout_s: 2.0
   fallback_to_log: true             # Si Piper échoue, garder un retour log
 
+# --- Mémoire de session (persistance inter-lancements) ------------------------
+session_memory:
+  enabled: false                    # False par défaut : aucun fichier écrit
+  directory: data/sessions          # Dossier relatif autorisé
+  expiry_hours: 4.0                 # Session expirée au-delà de ce délai
+
 # --- Brouillons locaux --------------------------------------------------------
 drafts:
   enabled: false                    # False par defaut: aucun fichier ecrit
