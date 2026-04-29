@@ -35,7 +35,7 @@ class AssistantUtterance(BaseModel):
 
 def feedback_from_hands_report(report: HandsExecutionReport) -> AssistantUtterance:
     """Construit une phrase utilisateur depuis un rapport Hands."""
-    action = report.actions[0] if report.actions else None
+    action = _primary_feedback_action(report.actions)
 
     if report.status == "blocked":
         return _utterance(
@@ -86,6 +86,8 @@ def feedback_for_unhandled_local_intent(event: IntentRouted) -> AssistantUtteran
 def _completed_text(action: PlannedGuiAction | None, *, executed: bool) -> str:
     if action is None:
         return "C'est déjà terminé."
+    if _is_browser_action(action):
+        return _executed_action_sentence(action) if executed else _planned_action_sentence(action)
     if executed:
         return f"Je l'ai trouvée dans ton PC. {_executed_action_sentence(action)}"
     return f"Action terminée. {_planned_action_sentence(action)}"
@@ -121,6 +123,12 @@ def _executed_action_sentence(action: PlannedGuiAction) -> str:
         return _volume_sentence(action.text)
     if action.type == "media_control":
         return _media_sentence(action.text)
+    if action.type == "browser_open_chrome":
+        return "J'ai ouvert Chrome."
+    if action.type == "browser_new_tab":
+        return "J'ai ouvert un nouvel onglet."
+    if action.type == "browser_navigate":
+        return f"J'ai ouvert la page {target}."
     return f"J'ai exécuté l'action {action.type}."
 
 
@@ -136,6 +144,12 @@ def _planned_action_sentence(action: PlannedGuiAction) -> str:
         return f"Je peux régler le volume: {target}."
     if action.type == "media_control":
         return f"Je peux envoyer la commande média: {target}."
+    if action.type == "browser_open_chrome":
+        return "Je peux ouvrir Chrome."
+    if action.type == "browser_new_tab":
+        return "Je peux ouvrir un nouvel onglet."
+    if action.type == "browser_navigate":
+        return f"Je peux ouvrir la page {target}."
     return f"Je peux exécuter l'action {action.type}."
 
 
@@ -149,11 +163,32 @@ def _action_label(action: PlannedGuiAction) -> str:
         return f"ouvrir le dossier {target}"
     if action.type == "close_app":
         return f"fermer {target}"
+    if action.type == "browser_open_chrome":
+        return "ouvrir Chrome"
+    if action.type == "browser_new_tab":
+        return "ouvrir un nouvel onglet"
+    if action.type == "browser_navigate":
+        return f"ouvrir la page {target}"
     return f"{action.type} {target}"
 
 
 def _target_or_default(action: PlannedGuiAction) -> str:
     return action.text or action.type
+
+
+def _primary_feedback_action(
+    actions: tuple[PlannedGuiAction, ...],
+) -> PlannedGuiAction | None:
+    if not actions:
+        return None
+    for action in actions:
+        if action.type == "browser_navigate":
+            return action
+    return actions[0]
+
+
+def _is_browser_action(action: PlannedGuiAction) -> bool:
+    return action.type.startswith("browser_")
 
 
 def _volume_sentence(target: str | None) -> str:

@@ -15,6 +15,7 @@ from brain.vision_local import LocalVisionClient
 from config.schema import JarvisConfig
 from core.event_bus import EventBus, SubscriptionHandle
 from core.state_machine import State, StateMachine
+from hands.browser_actions import BrowserActionPlanner
 from hands.executor import DryRunHandsExecutor, HandsExecutionReport
 from hands.local_actions import LocalActionPlanner
 from hands.screenshot import ScreenshotCapture, ScreenshotFrame
@@ -61,6 +62,20 @@ class LocalActionPlannerLike(Protocol):
         """Retourne un rapport local si l'intention est supportee."""
 
 
+class BrowserActionPlannerLike(Protocol):
+    """Contrat minimal du planificateur navigateur sans vision."""
+
+    def plan(self, event: IntentRouted) -> HandsExecutionReport | None:
+        """Retourne un rapport navigateur si l'intention est supportee."""
+
+
+class _NoopBrowserActionPlanner:
+    def plan(self, event: IntentRouted) -> HandsExecutionReport | None:
+        """Ne planifie aucune action navigateur."""
+        _ = event
+        return None
+
+
 class HandsPipelineService:
     """Service reactif : IntentRouted(gui) -> rapport Hands dry-run."""
 
@@ -73,6 +88,7 @@ class HandsPipelineService:
         vision: VisionAnalyzerLike,
         executor: HandsExecutorLike,
         local_actions: LocalActionPlannerLike,
+        browser_actions: BrowserActionPlannerLike | None = None,
         monitor_index: int = 0,
     ) -> None:
         self._bus = event_bus
@@ -81,6 +97,7 @@ class HandsPipelineService:
         self._vision = vision
         self._executor = executor
         self._local_actions = local_actions
+        self._browser_actions = browser_actions or _NoopBrowserActionPlanner()
         self._monitor_index = monitor_index
         self._subscription: SubscriptionHandle | None = None
 
@@ -100,6 +117,7 @@ class HandsPipelineService:
             vision=LocalVisionClient(config.vision),
             executor=DryRunHandsExecutor(config.safety),
             local_actions=LocalActionPlanner(config.safety),
+            browser_actions=BrowserActionPlanner(config.safety),
         )
 
     def start(self) -> None:
@@ -131,6 +149,23 @@ class HandsPipelineService:
                 actions=len(local_report.actions),
                 executed=local_report.executed,
                 requires_human=local_report.requires_human,
+            )
+            return
+
+        browser_report = self._browser_actions.plan(event)
+        if browser_report is not None:
+            await self._bus.publish(browser_report)
+            await self._publish_feedback(
+                feedback_from_hands_report(browser_report),
+                reason=f"browser_action_{browser_report.status}",
+            )
+            log.info(
+                "hands_browser_action_reported",
+                domain=event.domain,
+                status=browser_report.status,
+                actions=len(browser_report.actions),
+                executed=browser_report.executed,
+                requires_human=browser_report.requires_human,
             )
             return
 

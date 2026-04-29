@@ -86,10 +86,7 @@ class PiperTTSClient:
     async def synthesize(self, *, text: str, voice: str) -> None:
         """Synthese puis joue `text` avec Piper."""
         try:
-            await asyncio.wait_for(
-                self._synthesize_once(text=text, voice=voice),
-                timeout=self._timeout_s,
-            )
+            await self._synthesize_once(text=text, voice=voice)
         except PiperUnavailableError:
             raise
         except Exception as exc:

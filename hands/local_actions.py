@@ -251,6 +251,13 @@ def _match_local_action(
     if volume_action is not None:
         return _with_capability_decision(volume_action, capabilities)
 
+    media_action = _match_media_action(text)
+    if media_action is not None:
+        return _with_capability_decision(media_action, capabilities)
+
+    if _looks_like_browser_workflow(text):
+        return None
+
     if _CLOSE_PATTERN.search(text):
         app = _match_alias(text, _APP_ALIASES)
         if app is None:
@@ -266,10 +273,6 @@ def _match_local_action(
             PlannedGuiAction(type="close_app", text=app, destructive=True),
             capabilities,
         )
-
-    media_action = _match_media_action(text)
-    if media_action is not None:
-        return _with_capability_decision(media_action, capabilities)
 
     if _OPEN_PATTERN.search(text):
         folder = _match_alias(text, _FOLDER_ALIASES)
@@ -309,9 +312,12 @@ def _match_local_action(
 def _match_media_action(text: str) -> PlannedGuiAction | None:
     if "spotify" not in text and "musique" not in text and "youtube" not in text:
         return None
-    if _OPEN_PATTERN.search(text):
+
+    if _OPEN_PATTERN.search(text) and _is_spotify_open_request(text):
         return PlannedGuiAction(type="launch_app", text="Spotify")
-    if re.search(r"\b(pause|mets en pause)\b", text):
+    if re.search(r"\b(pause|mets en pause|stop|arrete|arretes)\b", text):
+        return PlannedGuiAction(type="media_control", text="pause")
+    if re.search(r"\bcoupe\b", text) and re.search(r"\b(musique|spotify|youtube)\b", text):
         return PlannedGuiAction(type="media_control", text="pause")
     if re.search(
         r"\b(reprends|resume|play|active la musique|mets de la musique|met de la musique|joue de la musique)\b",
@@ -323,6 +329,21 @@ def _match_media_action(text: str) -> PlannedGuiAction | None:
     if re.search(r"\b(precedente|previous)\b", text):
         return PlannedGuiAction(type="media_control", text="previous")
     return None
+
+
+def _is_spotify_open_request(text: str) -> bool:
+    if "spotify" in text:
+        return True
+    if "musique" not in text:
+        return False
+    return not re.search(r"\b(youtube|onglet|recherche|cherche|google|web|internet)\b", text)
+
+
+def _looks_like_browser_workflow(text: str) -> bool:
+    return bool(
+        re.search(r"\b(onglet|recherche|cherche)\b", text)
+        or re.search(r"\b(ouvre|va sur|vas sur)\b.*\b(youtube|site|web|internet)\b", text)
+    )
 
 
 def _match_volume_action(text: str) -> PlannedGuiAction | None:

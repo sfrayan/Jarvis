@@ -153,6 +153,9 @@ class TestLocalActionPlanner:
             ("baisse le volume", "system", "system_volume", "volume_down"),
             ("coupe le volume", "system", "system_volume", "mute"),
             ("mets Spotify en pause", "media", "media_control", "pause"),
+            ("arrete la musique", "media", "media_control", "pause"),
+            ("stop la musique", "media", "media_control", "pause"),
+            ("coupe la musique", "media", "media_control", "pause"),
             ("active la musique", "media", "media_control", "play"),
             ("mets de la musique", "media", "media_control", "play"),
         ],
@@ -249,6 +252,18 @@ class TestLocalActionPlanner:
         planner = _planner()
 
         report = planner.plan(_intent("fais un truc local", domain="system"))
+
+        assert report is None
+
+    def test_youtube_browser_request_does_not_open_spotify(self) -> None:
+        planner = _planner()
+
+        report = planner.plan(
+            _intent(
+                "Chrome ouvre un nouvel onglet et fait une recherche sur YouTube",
+                domain="media",
+            )
+        )
 
         assert report is None
 

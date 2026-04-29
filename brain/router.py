@@ -235,6 +235,7 @@ def normalize_transcription(text: str) -> str:
         r"\bpour\s+spotify\b": "ouvre Spotify",
         r"\bvolumes?\s+montent\b": "volume monte",
         r"\bvolume\s+mode\b": "volume monte",
+        r"\btop\s+la\s+musique\b": "stop la musique",
         r"\bc'est\s+un\s+couvre[-\s]+chrome\b": "ouvre Chrome",
         r"\bcouvre[-\s]+chrome\b": "ouvre Chrome",
         r"\bdocker\s+desque\s+top\b": "Docker Desktop",
@@ -284,6 +285,7 @@ def _heuristic_route(
         r"\b(ouvre|ouvres|ouvrir|ouvre-moi|m'ouvres)\b",
         r"\b(lance|lances|lancer|démarre|demarre|démarres|demarres)\b",
         r"\b(ferme|fermes|quitte|quittes|éteins|eteins|éteint|eteint|éteindre|eteindre)\b",
+        r"\b(stop|stops)\b",
         r"\b(arrête|arrete|arrêtes|arretes|coupe|coupes)\b",
         r"\b(allume|allumes|active|actives|d.sactive|desactive|r.gle|regle)\b",
     )
@@ -291,6 +293,7 @@ def _heuristic_route(
         r"^(ouvre|ouvres|ouvrir|ouvre-moi|m'ouvres)$",
         r"^(lance|lances|lancer|d.marre|demarre|d.marres|demarres)$",
         r"^(ferme|fermes|quitte|quittes|.teins|eteins|.teint|eteint|.teindre|eteindre)$",
+        r"^(stop|stops)$",
         r"^(arr.te|arrete|arr.tes|arretes|coupe|coupes)$",
         r"^(allume|allumes|active|actives|d.sactive|desactive|r.gle|regle)$",
     )
@@ -311,10 +314,11 @@ def _heuristic_route(
         r"\b(clique|clic|double clique|appuie|tape|écris|ecris)\b",
         r"\b(capture d'écran|capture ecran|screenshot)\b",
         r"\b(analyse|regarde)\b.*\b(.cran|ecran|fen.tre|fenetre)\b",
+        r"\b(nouvel|nouveau|nouvelle)\s+onglet\b",
         r"\b(va sur|cherche sur|recherche sur)\b",
         r"\bvolume\b.*\b(monte|augmente|baisse|diminue|coupe|muet|mute)\b",
         r"\b(monte|augmente|baisse|diminue|coupe|muet|mute)\b.*\bvolume\b",
-        r"\b(mets|met|joue|pause|reprends|suivante|pr.c.dente|precedente)\b",
+        r"\b(mets|met|joue|pause|stop|reprends|suivante|pr.c.dente|precedente)\b",
         r"\b(mode travail|au boulot|mode iron man)\b",
         r"^(de|du)\s+(slide|diapo)\b",
         r"\b(change|changes|suivant|suivante|précédent|precedent)\b.*\b(slide|diapo)\b",
@@ -399,8 +403,20 @@ def _infer_domain(text: str, intent: IntentType) -> IntentDomain:
     if _matches_any(
         lowered,
         (
+            r"\b(google doc|google sheet|google docs|google sheets)\b",
+            r"\b(gmail|agenda|outlook|email|mail)\b",
+        ),
+    ):
+        return "google_workspace"
+
+    if _looks_like_web_search(lowered):
+        return "web_search"
+
+    if _matches_any(
+        lowered,
+        (
             r"\b(spotify|youtube|musique|playlist|artiste|titre)\b",
-            r"\b(play|pause|reprends|suivante|pr.c.dente|precedente)\b",
+            r"\b(play|pause|stop|reprends|suivante|pr.c.dente|precedente)\b",
         ),
     ):
         return "media"
@@ -425,18 +441,6 @@ def _infer_domain(text: str, intent: IntentType) -> IntentDomain:
     ):
         return "system"
 
-    if _matches_any(
-        lowered,
-        (
-            r"\b(google doc|google sheet|google docs|google sheets)\b",
-            r"\b(gmail|agenda|outlook|email|mail)\b",
-        ),
-    ):
-        return "google_workspace"
-
-    if _matches_any(lowered, (r"\b(web|internet|serpapi|cherche|recherche|google)\b",)):
-        return "web_search"
-
     if intent == "gui" and _matches_any(
         lowered,
         (
@@ -451,6 +455,41 @@ def _infer_domain(text: str, intent: IntentType) -> IntentDomain:
     return "general"
 
 
+def _looks_like_web_search(text: str) -> bool:
+    return _matches_any(
+        text,
+        (
+            r"\b(cherche|recherche|recherches)\b",
+            r"\b(fais|fait)\b.*\brecherche\b",
+            r"\b(nouvel|nouveau|nouvelle)\s+onglet\b",
+            r"\b(onglet|nouvel onglet)\b.*\b(recherche|cherche|youtube|google)\b",
+            r"\b(ouvre|lance|mets|met|va sur|vas sur)\b.*\b(youtube|google|site|web|internet)\b",
+        ),
+    )
+
+
+def _looks_like_media_control_request(text: str) -> bool:
+    return _matches_any(
+        text,
+        (
+            r"\b(play|pause|stop|reprends|suivante|precedente)\b.*\b(musique|spotify|youtube)\b",
+            r"\b(arr.te|arrete|arr.tes|arretes|coupe|coupes)\b.*\b(musique|spotify|youtube)\b",
+            r"\b(mets|met|joue|active|actives)\b.*\b(musique|spotify|youtube)\b",
+            r"\b(musique|spotify|youtube)\b.*\b(play|pause|stop|reprends|suivante|precedente)\b",
+        ),
+    )
+
+
+def _looks_like_browser_workflow_target(target: str) -> bool:
+    return _matches_any(
+        target,
+        (
+            r"\b(onglet|nouvel onglet)\b",
+            r"\b(cherche|recherche|recherches)\b",
+        ),
+    )
+
+
 def _dynamic_capability_route(
     text: str,
     capabilities: CapabilityLookupLike | None,
@@ -462,6 +501,12 @@ def _dynamic_capability_route(
 
     target = _extract_dynamic_action_target(text)
     if target is None:
+        return None
+    if (
+        _looks_like_web_search(text)
+        or _looks_like_media_control_request(text)
+        or _looks_like_browser_workflow_target(target)
+    ):
         return None
 
     action: CapabilityAction = (

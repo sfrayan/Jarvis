@@ -8,7 +8,7 @@ from brain.events import IntentDomain, IntentRouted, IntentType
 from brain.vision_contracts import VisionAction, VisionDecision
 from core.event_bus import EventBus
 from core.state_machine import State, StateMachine, StateTransition
-from hands.executor import HandsExecutionReport, HandsExecutionStatus
+from hands.executor import HandsExecutionReport, HandsExecutionStatus, PlannedGuiAction
 from hands.screenshot import ScreenshotFrame
 from hands.service import HandsPipelineService
 from voice.feedback import AssistantUtterance
@@ -71,6 +71,16 @@ class _FakeLocalActions:
         return self.report
 
 
+class _FakeBrowserActions:
+    def __init__(self, report: HandsExecutionReport | None = None) -> None:
+        self.report = report
+        self.calls: list[IntentRouted] = []
+
+    def plan(self, event: IntentRouted) -> HandsExecutionReport | None:
+        self.calls.append(event)
+        return self.report
+
+
 def _intent(
     *,
     intent: IntentType = "gui",
@@ -121,6 +131,17 @@ def _report() -> HandsExecutionReport:
         executed=False,
         requires_human=False,
         reason="rapport local fake",
+    )
+
+
+def _browser_report() -> HandsExecutionReport:
+    return HandsExecutionReport(
+        status="dry_run",
+        mode="dry_run",
+        actions=(PlannedGuiAction(type="browser_navigate", text="https://www.youtube.com"),),
+        executed=False,
+        requires_human=False,
+        reason="rapport navigateur fake",
     )
 
 
@@ -207,6 +228,87 @@ class TestHandsPipelineService:
         assert reports[0].status == "dry_run"
         assert utterances[0].text == "En mode dry run, je n'exécute rien pour l'instant."
         assert sm.state is State.IDLE
+
+    @pytest.mark.asyncio
+    async def test_web_search_domain_publishes_browser_report_without_vision(self) -> None:
+        bus = EventBus()
+        sm = StateMachine(bus, initial=State.ROUTING)
+        screenshot = _FakeScreenshot()
+        vision = _FakeVision()
+        local_actions = _FakeLocalActions()
+        browser_actions = _FakeBrowserActions(_browser_report())
+        service = HandsPipelineService(
+            event_bus=bus,
+            state_machine=sm,
+            screenshot=screenshot,
+            vision=vision,
+            executor=_FakeExecutor(),
+            local_actions=local_actions,
+            browser_actions=browser_actions,
+        )
+        reports: list[HandsExecutionReport] = []
+        utterances: list[AssistantUtterance] = []
+
+        async def report_handler(event: HandsExecutionReport) -> None:
+            reports.append(event)
+
+        async def utterance_handler(event: AssistantUtterance) -> None:
+            utterances.append(event)
+
+        bus.subscribe(HandsExecutionReport, report_handler)
+        bus.subscribe(AssistantUtterance, utterance_handler)
+        service.start()
+
+        await bus.publish(_intent(domain="web_search", text="ouvre YouTube"))
+
+        assert local_actions.calls[0].domain == "web_search"
+        assert browser_actions.calls[0].domain == "web_search"
+        assert screenshot.calls == []
+        assert vision.requests == []
+        assert reports[0].actions[0].type == "browser_navigate"
+        assert utterances[0].text == (
+            "Je l'ai trouvée dans ton PC. En mode dry run, je n'exécute pas encore: "
+            "ouvrir la page https://www.youtube.com."
+        )
+        assert sm.state is State.IDLE
+
+    @pytest.mark.asyncio
+    async def test_web_search_without_browser_plan_keeps_existing_fallback(self) -> None:
+        bus = EventBus()
+        sm = StateMachine(bus, initial=State.ROUTING)
+        screenshot = _FakeScreenshot()
+        vision = _FakeVision()
+        browser_actions = _FakeBrowserActions()
+        service = HandsPipelineService(
+            event_bus=bus,
+            state_machine=sm,
+            screenshot=screenshot,
+            vision=vision,
+            executor=_FakeExecutor(),
+            local_actions=_FakeLocalActions(),
+            browser_actions=browser_actions,
+        )
+        reports: list[HandsExecutionReport] = []
+        utterances: list[AssistantUtterance] = []
+
+        async def report_handler(event: HandsExecutionReport) -> None:
+            reports.append(event)
+
+        async def utterance_handler(event: AssistantUtterance) -> None:
+            utterances.append(event)
+
+        bus.subscribe(HandsExecutionReport, report_handler)
+        bus.subscribe(AssistantUtterance, utterance_handler)
+        service.start()
+
+        await bus.publish(_intent(domain="web_search", text="commande navigateur inconnue"))
+
+        assert browser_actions.calls[0].domain == "web_search"
+        assert screenshot.calls == []
+        assert vision.requests == []
+        assert reports == []
+        assert utterances == []
+        assert sm.state is State.ROUTING
 
     @pytest.mark.asyncio
     async def test_local_domain_without_action_publishes_feedback(self) -> None:

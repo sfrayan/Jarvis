@@ -222,6 +222,15 @@ class TestIntentRouter:
             "baisse le volume",
             "coupe le volume",
             "active la musique",
+            "arrete la musique",
+            "stop la musique",
+            "top la musique",
+            "coupe la musique",
+            "Chrome ouvre un nouvel onglet et fait une recherche sur YouTube",
+            "lance YouTube",
+            "mets YouTube",
+            "ouvre Google",
+            "nouvel onglet Chrome",
             "ouvre les paramètres",
             "ouvre Calculatrice",
             "ouvre Bloc-notes",
@@ -265,6 +274,20 @@ class TestIntentRouter:
             ("baisse le volume", "gui", "system"),
             ("coupe le volume", "gui", "system"),
             ("active la musique", "gui", "media"),
+            ("arrete la musique", "gui", "media"),
+            ("stop la musique", "gui", "media"),
+            ("top la musique", "gui", "media"),
+            ("coupe la musique", "gui", "media"),
+            (
+                "Chrome ouvre un nouvel onglet et fait une recherche sur YouTube",
+                "gui",
+                "web_search",
+            ),
+            ("ouvre YouTube", "gui", "web_search"),
+            ("lance YouTube", "gui", "web_search"),
+            ("mets YouTube", "gui", "web_search"),
+            ("ouvre Google", "gui", "web_search"),
+            ("nouvel onglet Chrome", "gui", "web_search"),
             ("ouvre les paramètres", "gui", "apps"),
             ("ouvre Calculatrice", "gui", "apps"),
             ("ouvre Bloc-notes", "gui", "apps"),
@@ -393,6 +416,31 @@ class TestIntentRouter:
         assert capabilities.calls == [("app", "obsidian", "open")]
 
     @pytest.mark.asyncio
+    async def test_browser_search_request_does_not_query_dynamic_app_registry(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        client = _FakeOllamaClient(
+            '{"intent":"chat","confidence":0.99,"reason":"ne doit pas etre appele"}'
+        )
+        capabilities = _FakeCapabilityLookup((_local_capability(target_name="Spotify"),))
+        router = IntentRouter(
+            client=client,
+            capabilities=capabilities,
+            prompt_path=_prompt_file(tmp_path),
+        )
+
+        result = await router.route(
+            "Chrome ouvre un nouvel onglet et fait une recherche sur YouTube"
+        )
+
+        assert result.intent == "gui"
+        assert result.domain == "web_search"
+        assert result.model == "heuristic"
+        assert client.calls == []
+        assert capabilities.calls == []
+
+    @pytest.mark.asyncio
     async def test_heuristic_routes_chat_without_calling_client(self, tmp_path: Path) -> None:
         client = _FakeOllamaClient(
             '{"intent":"gui","confidence":0.99,"reason":"ne doit pas être appelé"}'
@@ -515,6 +563,7 @@ class TestNormalizeTranscription:
             ("pour Spotify.", "ouvre Spotify."),
             ("Volumes montent.", "volume monte."),
             ("volume mode.", "volume monte."),
+            ("top la musique", "stop la musique"),
             ("C'est un couvre-chrome.", "ouvre Chrome."),
             ("docker desque top", "Docker Desktop"),
             ("et un docker desktop", "éteins Docker Desktop"),

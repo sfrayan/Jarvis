@@ -75,6 +75,37 @@ def test_feedback_dry_run_explains_no_execution() -> None:
     assert utterance.reason == "Mode dry_run"
 
 
+def test_feedback_completed_browser_mentions_page() -> None:
+    utterance = feedback_from_hands_report(
+        _report(
+            action=PlannedGuiAction(
+                type="browser_navigate",
+                text="https://www.youtube.com",
+            )
+        )
+    )
+
+    assert utterance.text == "J'ai ouvert la page https://www.youtube.com."
+
+
+def test_feedback_browser_prefers_navigation_over_setup_action() -> None:
+    report = HandsExecutionReport(
+        status="dry_run",
+        mode="dry_run",
+        actions=(
+            PlannedGuiAction(type="browser_open_chrome", text="Chrome"),
+            PlannedGuiAction(type="browser_navigate", text="https://www.youtube.com"),
+        ),
+        executed=False,
+        requires_human=False,
+        reason="Mode dry_run",
+    )
+
+    utterance = feedback_from_hands_report(report)
+
+    assert utterance.text.endswith("ouvrir la page https://www.youtube.com.")
+
+
 def test_feedback_blocked_requests_confirmation() -> None:
     utterance = feedback_from_hands_report(
         _report(
